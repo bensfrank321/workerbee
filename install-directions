@@ -1,0 +1,48 @@
+sudo apt-get update
+sudo apt-get upgrade
+sudo apt-get install python-serial python-wxgtk2.8 python-pyglet python-tornado python-setuptools python-libxml2 python-gobject avahi-daemon libavahi-compat-libdnssd1 python-dbus python-psutil git subversion screen python-setuptools
+sudo apt-get install build-essential python-dev python-smbus python-pip git i2c-tools python-pip python-dev imagemagick haproxy
+sudo easy_install pip
+sudo pip install RPi.GPIO requests boto logging twisted
+
+cd ~/
+git clone https://github.com/adafruit/Adafruit_Python_CharLCD.git
+cd Adafruit_Python_CharLCD
+sudo python setup.py install
+
+cd ~/
+git clone https://github.com/foosel/OctoPrint.git
+cd OctoPrint
+sudo python setup.py install
+sudo cp scripts/octoprint.init /etc/init.d/octoprint
+sudo chmod +x /etc/init.d/octoprint
+sudo cp scripts/octoprint.default /etc/default/octoprint
+mkdir ~/.octoprint
+
+sudo usermod -a -G tty pi
+sudo usermod -a -G dialout pi
+
+cd ~
+sudo apt-get install subversion libjpeg8-dev imagemagick libav-tools cmake
+git clone https://github.com/jacksonliam/mjpg-streamer.git
+cd mjpg-streamer/mjpg-streamer-experimental
+make
+sudo make install
+
+
+
+
+sudo /bin/sh -c 'cat /home/pi/katana/kclient/inittab-setup >> /etc/inittab'
+chmod a+x $HOME/katana/kclient/kclient.py
+
+cat $HOME/katana/kclient/profile-setup >> $HOME/.profile
+source $HOME/.profile
+
+cd ~/
+git clone http://daniel-baumann.ch/git/software/dosfstools.git
+cd dosfstools
+make
+sudo umount /boot
+sudo ./fsck.fat -V /dev/mmcblk0p1
+sudo ./fsck.fat -a /dev/mmcblk0p1
+sudo mount /boot
