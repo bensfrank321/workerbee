@@ -1,14 +1,20 @@
 sudo apt-get update
 sudo apt-get upgrade
-sudo apt-get install python-serial python-wxgtk2.8 python-pyglet python-tornado python-setuptools python-libxml2 python-gobject avahi-daemon libavahi-compat-libdnssd1 python-dbus python-psutil git subversion screen python-setuptools
-sudo apt-get install build-essential python-dev python-smbus python-pip git i2c-tools python-pip python-dev imagemagick haproxy
+sudo apt-get install subversion libjpeg8-dev imagemagick libav-tools cmake python-serial python-wxgtk2.8 python-pyglet python-tornado python-setuptools python-libxml2 python-gobject avahi-daemon libavahi-compat-libdnssd1 python-dbus python-psutil git subversion screen python-setuptools build-essential python-dev python-smbus python-pip git i2c-tools python-pip python-dev imagemagick haproxy
 sudo easy_install pip
 sudo pip install RPi.GPIO requests boto logging twisted
+
+echo 'i2c-bcm2708' | sudo tee --append /etc/modules
+echo 'i2c-dev' | sudo tee --append /etc/modules
+sudo reboot
 
 cd ~/
 git clone https://github.com/adafruit/Adafruit_Python_CharLCD.git
 cd Adafruit_Python_CharLCD
 sudo python setup.py install
+
+cd ~/
+git clone https://github.com/shawngrimes/workerbee.git
 
 cd ~/
 git clone https://github.com/foosel/OctoPrint.git
@@ -19,23 +25,116 @@ sudo chmod +x /etc/init.d/octoprint
 sudo cp scripts/octoprint.default /etc/default/octoprint
 mkdir ~/.octoprint
 
+sudo update-rc.d octoprint defaults
+
+sudo vi /etc/haproxy/haproxy.cfg
+-------------
+global
+        maxconn 4096
+        user haproxy
+        group haproxy
+        daemon
+        log 127.0.0.1 local0 debug
+
+defaults
+        log     global
+        mode    http
+        option  httplog
+        option  dontlognull
+        retries 3
+        option redispatch
+        option http-server-close
+        option forwardfor
+        maxconn 2000
+        timeout connect 5s
+        timeout client  15min
+        timeout server  15min
+
+frontend public
+        bind *:80
+        use_backend webcam if { path_beg /webcam/ }
+        default_backend octoprint
+
+backend octoprint
+        reqrep ^([^\ :]*)\ /octoprint/(.*)     \1\ /\2
+        option forwardfor
+        server octoprint1 127.0.0.1:5000
+
+backend webcam
+        reqrep ^([^\ :]*)\ /webcam/(.*)     \1\ /\2
+        server webcam1  127.0.0.1:8080
+
+--------------
+
+sudo vi /etc/default/haproxy
+-----------------
+ENABLED=1
+-------------
+
 sudo usermod -a -G tty pi
 sudo usermod -a -G dialout pi
 
 cd ~
-sudo apt-get install subversion libjpeg8-dev imagemagick libav-tools cmake
 git clone https://github.com/jacksonliam/mjpg-streamer.git
 cd mjpg-streamer/mjpg-streamer-experimental
 make
-sudo make install
+sudo make DESTDIR=/usr/local install
+
+sudo vi /usr/local/bin/raspi_streamer
+-----------
+#!/bin/bash
+# Start / stop streamer
+
+Daemon=mjpg_streamer
+DaemonBase=/usr/local
+DaemonArgs="-i \"input_raspicam.so -fps 5 -hf -vf\" -o \"output_http.so -w /usr/local/lib/www\""
+
+case "$1" in
+   start)
+         eval LD_LIBRARY_PATH=${DaemonBase}/lib ${DaemonBase}/bin/${Daemon} ${DaemonArgs} >/dev/null 2>&1 &
+         echo "$0: started"
+     ;;
+   stop)
+         pkill -x ${Daemon}
+         echo "$0: stopped"
+     ;;
+   *)
+         echo "Usage: $0 {start|stop}" >&2
+     ;;
+esac
+-------
+sudo chmod a+x /usr/local/bin/raspi_streamer
+
+sudo vi /etc/rc.local
+------
+/usr/local/bin/raspi_streamer start
+-----
 
 
+sudo vi /usr/local/bin/checkwifi.sh
+-------
+ping -c4 192.168.1.1 > /dev/null
+
+if [ $? != 0 ]
+then
+  echo "No network connection, restarting wlan0"
+  /sbin/ifdown 'wlan0'
+  sleep 5
+  /sbin/ifup --force 'wlan0'
+fi
+ -------
+
+ crontab -e
+ ------
+ */5 * * * * /usr/bin/sudo -H /usr/local/bin/checkwifi.sh >> /dev/null 2>&1
+ ------
+ sudo chmod a+x /usr/local/bin/checkwifi.sh
 
 
-sudo /bin/sh -c 'cat /home/pi/katana/kclient/inittab-setup >> /etc/inittab'
-chmod a+x $HOME/katana/kclient/kclient.py
+sudo /bin/sh -c 'cat /home/pi/workerbee/inittab-setup >> /etc/inittab'
+chmod a+x $HOME/workerbee/workerBee.py
 
-cat $HOME/katana/kclient/profile-setup >> $HOME/.profile
+cat $HOME/workerbee/profile-setup >> $HOME/.profile
 source $HOME/.profile
 
 cd ~/

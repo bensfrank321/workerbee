@@ -19,6 +19,7 @@ from twisted.internet import pollreactor
 pollreactor.install()
 from twisted.internet import reactor
 from twisted.internet.task import LoopingCall
+import math
 
 if (KatanaConfig.hasLCD()):
 	import Adafruit_CharLCD as LCD
@@ -292,7 +293,7 @@ class HiveClient(Protocol):
 
 			if(status=="printing"):
 				printStatus=getPrintingStatus()
-				updateBotStatus(statusCode=1,message='Printing: ' + printStatus['fileName'] + '<BR/>Percent Complete: ' + str(printStatus['percentComplete']))
+				updateBotStatus(statusCode=1,message='Printing: ' + printStatus['fileName'] + '<BR/>Percent Complete: ' + str(math.ceil(printStatus['percentComplete'])))
 
 		 	if(status=="idle"):
 				self.requestJob()
