@@ -65,19 +65,23 @@ lastCheckIn=0
 def printerStatus():
 	# data={'status':str(statusCode),'message':message}
 	headers={'Authorization':api_key}
-	r=requests.get(katana_url + 'bots/' + str(myPrinterId) ,headers=headers)
-	bot_stats=json.loads(r.text)
+	try:
+		r=requests.get(katana_url + 'bots/' + str(myPrinterId) ,headers=headers)
+		bot_stats=json.loads(r.text)
 
-	headers={'X-Api-Key':octoprint_api_key}
-	r=requests.get('http://localhost:5000/' + 'api/job',headers=headers)
-	decodedData=json.loads(r.text)
-	if ( decodedData['state'] == 'Operational' and bot_stats['status']==0):
-		return 'idle'
-	if ( decodedData['state'] == 'Printing' and bot_stats['status']!=0):
-		return 'printing'
-	if ( decodedData['state'] == 'Closed' or bot_stats['status']!=0):
-		return 'offline'
-	return 'other'
+		headers={'X-Api-Key':octoprint_api_key}
+		r=requests.get('http://localhost:5000/' + 'api/job',headers=headers)
+		decodedData=json.loads(r.text)
+		if ( decodedData['state'] == 'Operational' and bot_stats['status']==0):
+			return 'idle'
+		if ( decodedData['state'] == 'Printing' and bot_stats['status']!=0):
+			return 'printing'
+		if ( decodedData['state'] == 'Closed' or bot_stats['status']!=0):
+			return 'offline'
+		return 'other'
+	except:
+		return 'other'
+
 
 def getPrintingStatus():
 	headers={'X-Api-Key':octoprint_api_key}
