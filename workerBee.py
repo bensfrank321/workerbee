@@ -135,16 +135,19 @@ def showStatus():
 def checkBotStatus():
 	lastCheckIn=datetime.now()
 	headers={'Authorization':api_key}
-	r=requests.get(katana_url + 'bots/' + str(myPrinterId) ,headers=headers)
-	# print "response: " + r.text
-	bot_stats=json.loads(r.text)
-	if not((bot_stats['pendingCommand'] == 'NULL') or (bot_stats['pendingCommand'] is None) or (len(bot_stats['pendingCommand'])==0)):
-		runCommand(bot_stats['pendingCommand'])
+	try:
+		r=requests.get(katana_url + 'bots/' + str(myPrinterId) ,headers=headers)
+		# print "response: " + r.text
+		bot_stats=json.loads(r.text)
+		if not((bot_stats['pendingCommand'] == 'NULL') or (bot_stats['pendingCommand'] is None) or (len(bot_stats['pendingCommand'])==0)):
+			runCommand(bot_stats['pendingCommand'])
 
-	headers={'Authorization':api_key}
-	r=requests.put(katana_url + 'bots/' + str(myPrinterId) + '/checkin',headers=headers)
+		headers={'Authorization':api_key}
+		r=requests.put(katana_url + 'bots/' + str(myPrinterId) + '/checkin',headers=headers)
 
-	tryCaptureImage()
+		tryCaptureImage()
+	except:
+		bot_stats=[]
 	return bot_stats
 
 def runCommand(gcode):
@@ -163,8 +166,12 @@ def runCommand(gcode):
 
 def markJobTaken(jobID):
 	##Make sure job isn't already taken
-	headers={'Authorization':api_key}
-	r=requests.get(katana_url + 'jobs/' + str(jobID),headers=headers)
+	try:
+		headers={'Authorization':api_key}
+		r=requests.get(katana_url + 'jobs/' + str(jobID),headers=headers)
+	except:
+		return False
+
 	decodedData=json.loads(r.text)
 	if( decodedData['error']==True or decodedData['status']!=0):
 		return False
@@ -181,26 +188,28 @@ def markJobTaken(jobID):
 def addJobToOctoprint(job):
 	##Download file
 	print "Downloading file: " + job['gcodePath']
-	r=requests.get(job['gcodePath'],stream=True)
-	with open(job['gcodePath'].split('/')[-1], 'wb') as f:
-		for chunk in r.iter_content(chunk_size=1024):
-			if chunk: # filter out keep-alive new chunks
-				f.write(chunk)
-				f.flush()
-	# print "file download: " + str(r)
+	try:
+		r=requests.get(job['gcodePath'],stream=True)
+		with open(job['gcodePath'].split('/')[-1], 'wb') as f:
+			for chunk in r.iter_content(chunk_size=1024):
+				if chunk: # filter out keep-alive new chunks
+					f.write(chunk)
+					f.flush()
 
-	print "Sending file to octoprint: " + job['gcodePath']
+		print "Sending file to octoprint: " + job['gcodePath']
 
-	headers={'X-Api-Key':octoprint_api_key}
-	files = {'file': open(job['gcodePath'].split('/')[-1], 'r')}
-	r=requests.post( 'http://localhost:5000/api/files/local', headers=headers,files=files)
-	# print "Response: " + str(r)
-	# print "Response Text: " + str(r.text)
-	decodedData=json.loads(r.text)
-	if( decodedData['done']==True):
-		os.remove(job['gcodePath'].split('/')[-1])
-		return True
-	else:
+		headers={'X-Api-Key':octoprint_api_key}
+		files = {'file': open(job['gcodePath'].split('/')[-1], 'r')}
+		r=requests.post( 'http://localhost:5000/api/files/local', headers=headers,files=files)
+		# print "Response: " + str(r)
+		# print "Response Text: " + str(r.text)
+		decodedData=json.loads(r.text)
+		if( decodedData['done']==True):
+			os.remove(job['gcodePath'].split('/')[-1])
+			return True
+		else:
+			return False
+	except:
 		return False
 
 def octoprintFile(job):
@@ -223,11 +232,17 @@ def updateBotStatus(statusCode=99,message=''):
 	if statusCode==99:
 		data={'message':message}
 		headers={'Authorization':api_key}
-		r=requests.put(katana_url + 'bots/' + str(myPrinterId) + '/message',data=data,headers=headers)
+		try:
+			r=requests.put(katana_url + 'bots/' + str(myPrinterId) + '/message',data=data,headers=headers)
+		except:
+			print "Could not update bot status. Network Issue."
 	else:
 		data={'status':str(statusCode),'message':message}
 		headers={'Authorization':api_key}
-		r=requests.put(katana_url + 'bots/' + str(myPrinterId),data=data,headers=headers)
+		try:
+			r=requests.put(katana_url + 'bots/' + str(myPrinterId),data=data,headers=headers)
+		except:
+			print "Could not update bot status. Network Issue."
 		# print "response: " + r.text
 
 #Twisted Implementation
