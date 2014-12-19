@@ -312,7 +312,7 @@ class HiveClient(Protocol):
 				printStatus=getPrintingStatus()
 				updateBotStatus(statusCode=1,message='Printing: ' + printStatus['fileName'] + '<BR/>Percent Complete: ' + str(math.ceil(printStatus['percentComplete'])))
 
-		 	if(status=="idle" and isPrinting=False):
+		 	if(status=="idle" and isPrinting==False):
 				self.requestJob()
 
 		else:
