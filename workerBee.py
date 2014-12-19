@@ -92,6 +92,7 @@ def getPrintingStatus():
 		printingStatus['percentComplete']=decodedData['progress']['completion']
 		printingStatus['timeLeft']=decodedData['progress']['printTimeLeft']
 		printingStatus['fileName']=decodedData['job']['file']['name']
+		isPrinting=True
 	else:
 		printingStatus['percentComplete']='100'
 		printingStatus['timeLeft']='0'
@@ -132,23 +133,20 @@ def showStatus():
 	print "Status: " + status
 
 
-def checkBotStatus():
-	lastCheckIn=datetime.now()
-	headers={'Authorization':api_key}
-	try:
-		r=requests.get(katana_url + 'bots/' + str(myPrinterId) ,headers=headers)
-		# print "response: " + r.text
-		bot_stats=json.loads(r.text)
-		if not((bot_stats['pendingCommand'] == 'NULL') or (bot_stats['pendingCommand'] is None) or (len(bot_stats['pendingCommand'])==0)):
-			runCommand(bot_stats['pendingCommand'])
-
-		headers={'Authorization':api_key}
-		r=requests.put(katana_url + 'bots/' + str(myPrinterId) + '/checkin',headers=headers)
-
-		tryCaptureImage()
-	except:
-		bot_stats=[]
-	return bot_stats
+# def checkBotStatus():
+# 	lastCheckIn=datetime.now()
+# 	headers={'Authorization':api_key}
+# 	r=requests.get(katana_url + 'bots/' + str(myPrinterId) ,headers=headers)
+# 	# print "response: " + r.text
+# 	bot_stats=json.loads(r.text)
+# 	if not((bot_stats['pendingCommand'] == 'NULL') or (bot_stats['pendingCommand'] is None) or (len(bot_stats['pendingCommand'])==0)):
+# 		runCommand(bot_stats['pendingCommand'])
+#
+# 	headers={'Authorization':api_key}
+# 	r=requests.put(katana_url + 'bots/' + str(myPrinterId) + '/checkin',headers=headers)
+#
+# 	tryCaptureImage()
+# 	return bot_stats
 
 def runCommand(gcode):
 	print 'Running Command: ' + gcode
@@ -314,7 +312,7 @@ class HiveClient(Protocol):
 				printStatus=getPrintingStatus()
 				updateBotStatus(statusCode=1,message='Printing: ' + printStatus['fileName'] + '<BR/>Percent Complete: ' + str(math.ceil(printStatus['percentComplete'])))
 
-		 	if(status=="idle"):
+		 	if(status=="idle" and isPrinting=False):
 				self.requestJob()
 
 		else:
