@@ -113,7 +113,9 @@ sudo vi /etc/rc.local
 
 sudo vi /usr/local/bin/checkwifi.sh
 -------
-ping -c4 192.168.1.1 > /dev/null
+IP=$(/sbin/ip route | awk '/default/ { print $3 }')
+
+ping -c4 $IP > /dev/null
 
 if [ $? != 0 ]
 then

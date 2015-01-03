@@ -36,6 +36,9 @@ if (KatanaConfig.hasLCD()):
 
 MINUTES = 60.0
 
+currentJobId = 0
+
+printingStatus={}
 
 requests_log = logging.getLogger("requests")
 requests_log.setLevel(logging.WARNING)
@@ -56,7 +59,7 @@ katana_url=KatanaConfig.KATANA_URL()
 api_key=KatanaConfig.KATANA_KEY()
 octoprint_api_key=KatanaConfig.OCTOPRINT_API_KEY()
 
-isPrinting=True
+isPrinting=False
 
 lastCameraCapture=0
 
@@ -74,6 +77,8 @@ def printerStatus():
 		decodedData=json.loads(r.text)
 		if ( decodedData['state'] == 'Operational' and bot_stats['status']==0):
 			return 'idle'
+		if ( decodedData['state'] == 'Operational' and bot_stats['status']==1):
+			return 'printing complete'
 		if ( decodedData['state'] == 'Printing' and bot_stats['status']!=0):
 			return 'printing'
 		if ( decodedData['state'] == 'Closed' or bot_stats['status']!=0):
@@ -84,19 +89,21 @@ def printerStatus():
 
 
 def getPrintingStatus():
+	global isPrinting
 	headers={'X-Api-Key':octoprint_api_key}
 	r=requests.get('http://localhost:5000/' + 'api/job',headers=headers)
 	decodedData=json.loads(r.text)
-	printingStatus={}
+	global printingStatus
 	if ( decodedData['state'] == 'Printing'):
 		printingStatus['percentComplete']=decodedData['progress']['completion']
 		printingStatus['timeLeft']=decodedData['progress']['printTimeLeft']
 		printingStatus['fileName']=decodedData['job']['file']['name']
 		isPrinting=True
 	else:
-		printingStatus['percentComplete']='100'
+		printingStatus['percentComplete']=decodedData['progress']['completion']
 		printingStatus['timeLeft']='0'
 		printingStatus['fileName']='0'
+
 	return printingStatus
 
 
@@ -182,6 +189,14 @@ def markJobTaken(jobID):
 			print "Mark Job Taken: " + r.text
 			return True
 
+def markJobCompleted(jobID):
+	headers={'Authorization':api_key}
+	data={'status':'2','bot':myPrinterId}
+	r=requests.put(katana_url + 'jobs/' + str(jobID),data=data,headers=headers)
+	decodedData=json.loads(r.text)
+	if(decodedData['error']==False):
+		print "Mark Job Completed: " + r.text
+		return True
 
 def addJobToOctoprint(job):
 	##Download file
@@ -274,45 +289,48 @@ class HiveClient(Protocol):
 					result=markJobTaken(decodedData['id'])
 					if(result==True):
 						updateBotStatus(statusCode=1,message='Printing: ' + decodedData['filename'])
+						currentJobId=decodedData['id']
 						result=octoprintFile(decodedData)
 					else:
 						updateBotStatus(statusCode=0,message='Job was already taken')
+						currentJobId=0
 				else:
 					updateBotStatus(statusCode=0,message='Job was already taken')
-						# POST /api/files/local/whistle_v2.gcode HTTP/1.1
-						# Host: example.com
-						# Content-Type: application/json
-						# X-Api-Key: abcdef...
-						#
-						# {
-						#   "command": "select",
-						#   "print": true
-						# }
+					currentJobId=0
 
-					# data={'type':'takeJob','jobID':decodedData['id'], 'botID':myPrinterId}
-					# self.transport.write(json.dumps(data))
-
-			# 	print "Bzzz....The hive welcomes " + str(decodedData['bot']) + " bot to the hive."
-			# 	self.handle_REGISTER(decodedData['bot'])
 
 	def stopAllTimers(self):
 		print "Stopping all timers"
 		self.checkInRepeater.stop
 
 	def checkBotIn(self):
+		global printingStatus
+		global isPrinting
 		if(self.hasConnected):
 			showStatus()
 			print "I should check in now. Queen Bee might be worried about me."
+
 			data={'type':'checkIn','bot':myPrinterId}
 			self.transport.write(json.dumps(data) + '\n')
 
 			status=printerStatus()
 
+			print "Status: " + status
+			print "isPrinting: " + str(isPrinting)
+
+			if(status=="printing complete"):
+				printStatus=getPrintingStatus()
+				if(printingStatus['percentComplete']==100):
+					markJobCompleted(currentJobId)
+					currentJobId=0
+
 			if(status=="printing"):
+				print "I'm printing"
 				printStatus=getPrintingStatus()
 				updateBotStatus(statusCode=1,message='Printing: ' + printStatus['fileName'] + '<BR/>Percent Complete: ' + str(math.ceil(printStatus['percentComplete'])))
 
 		 	if(status=="idle" and isPrinting==False):
+				print "Requesting job"
 				self.requestJob()
 
 		else:
@@ -420,107 +438,3 @@ reactor.connectTCP("fabhive.buzz", 5005, HiveFactory())
 
 # reactor.callWhenRunning(WorkerBee())
 reactor.run()
-
-#
-# while 1:
-# 	checkWithServer=False
-# 	if(lastCheckIn==0):
-# 		checkWithServer=True
-# 	else:
-# 		delta=datetime.now() - lastCheckIn
-# 		if(delta.seconds>30):
-# 			print "Last check in was " + str(delta.seconds) + " ago"
-# 			checkWithServer=True
-#
-# 	if(not checkWithServer):
-# 		print "continue"
-# 		continue
-#
-# 	print "checkWithServer: " + str(checkWithServer)
-#
-# 	#check printer status
-# 	bot_stats=checkBotStatus()
-# 	if bot_stats['status']==0:
-# 		isPrinting=False
-# 	else:
-# 		isPrinting=True
-# 		print "Not ready for a new job yet."
-# 		bot_stats_checkAgain=checkBotStatus()
-# 		while(not bot_stats_checkAgain['status']==0):
-# 			updateBotStatus(message='Temp: ' + str(p.status.extruder_temp)+'')
-# 			bot_stats_checkAgain=checkBotStatus()
-# 		print "Now I'm ready"
-#
-# 	if not isPrinting:
-# 		#download next job for this queue
-# 		headers={'Authorization':api_key}
-# 		r=requests.get(katana_url + '/queues/' + str(queue_id) +'/next',headers=headers)
-# 		result=json.loads(r.text)
-# 		if(result['error']==False):
-# 			print 'Got Next Job: ' + result['filename']
-#
-# 			updateBotStatus(statusCode=0,message='Downloading file: ' + result['filename'])
-#
-# 			#k = Key(bucket)
-# 			#k.key = result['filename']
-# 			#k.get_contents_to_filename(result['filename'])
-#
-# 			testfile=urllib.URLopener()
-# 			print "Getting: " + s3Path + result['filename'] + '.gcode'
-# 			testfile.retrieve(s3Path + result['filename'] + '.gcode',result['filename'] + '.gcode')
-#
-# 			#check job is still not taken
-# 			headers={'Authorization':api_key}
-# 			r=requests.get(katana_url + 'jobs/' + str(result['id']),headers=headers)
-# 			checkResult=json.loads(r.text)
-# 			if(checkResult['status']==0):
-# 				#mark job as pending
-# 				data={'status':'1','bot':myPrinterId}
-# 				headers={'Authorization':api_key}
-# 				r=requests.put(katana_url + 'jobs/' + str(result['id']),data=data,headers=headers)
-#
-#
-# 				updateBotStatus(statusCode=1,message='Printing file: ' + result['filename'])
-#
-# 				isPrinting=True
-#
-# 				p.load_gcode(result['filename'] + '.gcode')
-#
-#
-# 				try:
-# 					p.do_print(p)
-# 					try:
-# 						while p.p.printing:
-# 							progress = 100 * float(p.p.queueindex) / len(p.p.mainqueue)
-# 							print "Updating print bot status: "	+ ' (Temp: ' + str(p.status.extruder_temp) + ', Percent Complete: ' + str(progress) + ')'
-# 							tryCaptureImage()
-# 							updateBotStatus(message='Printing: ' + result['filename'] + ' (Temp: ' + str(p.status.extruder_temp) + ', Percent Complete: %.2f)' % progress)
-# 							time.sleep(5)
-#
-# 						#isPrinting=True
-# 						print "Updating print status"
-# 						data={'status':'3','bot':myPrinterId}
-# 						headers={'Authorization':api_key}
-# 						r=requests.put(katana_url + 'jobs/' + str(result['id']),data=data,headers=headers)
-# 						captureImage
-# 						updateBotStatus(message='Finished printing: ' + result['filename'] )
-# 						print "Result: "
-# 						print r.text
-# 					except:
-# 						data={'status':'0','bot':myPrinterId}
-# 						headers={'Authorization':api_key}
-# 						r=requests.put(katana_url + 'jobs/' + str(result['id']),data=data,headers=headers)
-# 						p.disconnect()
-#
-# 						updateBotStatus(statusCode=1,message='Failed to print: ' + result['filename'])
-#
-# 					updateBotStatus(statusCode=1,message='Completed print: ' + result['filename'])
-#
-#
-# 				except:
-# 					data={'status':'0','bot':myPrinterId}
-# 					headers={'Authorization':api_key}
-# 					r=requests.put(katana_url + 'jobs/' + str(result['id']),data=data,headers=headers)
-# 					isPrinting=False
-#
-# 	tryCaptureImage()
