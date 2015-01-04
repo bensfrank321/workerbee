@@ -67,6 +67,7 @@ lastCheckIn=0
 
 def printerStatus():
 	# data={'status':str(statusCode),'message':message}
+	global isPrinting
 	headers={'Authorization':api_key}
 	try:
 		r=requests.get(katana_url + 'bots/' + str(myPrinterId) ,headers=headers)
@@ -78,6 +79,7 @@ def printerStatus():
 		if ( decodedData['state'] == 'Operational' and bot_stats['status']==0):
 			return 'idle'
 		if ( decodedData['state'] == 'Operational' and bot_stats['status']==1):
+			isPrinting=False
 			return 'printing complete'
 		if ( decodedData['state'] == 'Printing' and bot_stats['status']!=0):
 			return 'printing'
@@ -275,6 +277,7 @@ class HiveClient(Protocol):
 		self.hasConnected=True
 
 	def dataReceived(self, data):
+		global currentJobId
 		print "> Received: ''%s''\n" % (data)
 		messages=data.split('\n')
 
@@ -306,6 +309,7 @@ class HiveClient(Protocol):
 	def checkBotIn(self):
 		global printingStatus
 		global isPrinting
+		global currentJobId
 		if(self.hasConnected):
 			showStatus()
 			print "I should check in now. Queen Bee might be worried about me."
