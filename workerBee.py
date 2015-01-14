@@ -21,8 +21,8 @@ from twisted.internet import reactor
 from twisted.internet.task import LoopingCall
 import math
 
-
-logging.basicConfig(filename='workerBee.log',level=logging.DEBUG)
+FORMAT = '%(asctime)-15s %(message)s'
+logging.basicConfig(filename='workerBee.log',level=logging.DEBUG,format=FORMAT)
 
 
 if (KatanaConfig.hasLCD()):
@@ -412,12 +412,12 @@ class HiveFactory(ReconnectingClientFactory):
 		return HiveClient(self)
 
 	def clientConnectionLost(self, connector, reason):
-		logging.debug('Lost connection.  Reason:', reason)
+		logging.debug('Lost connection.  Reason:' + str(reason))
 		self.protocol.stopAllTimers();
 		ReconnectingClientFactory.clientConnectionLost(self, connector, reason)
 
 	def clientConnectionFailed(self, connector, reason):
-		logging.debug('Connection failed. Reason:', reason)
+		logging.debug('Connection failed. Reason:' + str(reason))
 		self.protocol.stopAllTimers();
 		ReconnectingClientFactory.clientConnectionFailed(self, connector, reason)
 
