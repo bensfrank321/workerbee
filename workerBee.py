@@ -21,6 +21,10 @@ from twisted.internet import reactor
 from twisted.internet.task import LoopingCall
 import math
 
+
+logging.basicConfig(filename='workerBee.log',level=logging.DEBUG)
+
+
 if (KatanaConfig.hasLCD()):
 	import Adafruit_CharLCD as LCD
 	# Initialize the LCD using the pins
@@ -116,8 +120,8 @@ def printerTemps():
 	temps={}
 	temps['bed']=decodedData['temps']['bed']['actual']
 	temps['hotend']=decodedData['temps']['tool0']['actual']
-	print "bed: " + str(temps['bed'])
-	print "hotend: " + str(temps['hotend'])
+	logging.debug("bed: " + str(temps['bed']))
+	logging.debug("hotend: " + str(temps['hotend']))
 	return temps
 
 def updateLCD(message,color):
@@ -139,7 +143,7 @@ def showStatus():
 		lcd.clear()
 		lcd.message("Printer Status: \n" + status)
 
-	print "Status: " + status
+	logging.debug("Status: " + status)
 
 
 # def checkBotStatus():
@@ -158,18 +162,18 @@ def showStatus():
 # 	return bot_stats
 
 def runCommand(gcode):
-	print 'Running Command: ' + gcode
+	logging.debug('Running Command: ' + gcode)
 	try:
 		time.sleep(5)
 		p.default(gcode)
 		data={'command':'NULL'}
 		headers={'Authorization':api_key}
 		r=requests.put(katana_url + 'bots/' + str(myPrinterId) + '/command/',data=data,headers=headers)
-		print "Result: "
-		print r.text
+		logging.debug("Result: ")
+		logging.debug(r.text)
 	except:
 	 	e = sys.exc_info()[0]
-	 	print 'Failed to connect to printer: %s' % e
+	 	logging.debug('Failed to connect to printer: %s' % e)
 
 def markJobTaken(jobID):
 	##Make sure job isn't already taken
@@ -188,7 +192,7 @@ def markJobTaken(jobID):
 		r=requests.put(katana_url + 'jobs/' + str(jobID),data=data,headers=headers)
 		decodedData=json.loads(r.text)
 		if(decodedData['error']==False):
-			print "Mark Job Taken: " + r.text
+			logging.debug("Mark Job Taken: " + r.text)
 			return True
 
 def markJobCompleted(jobID):
@@ -197,12 +201,12 @@ def markJobCompleted(jobID):
 	r=requests.put(katana_url + 'jobs/' + str(jobID),data=data,headers=headers)
 	decodedData=json.loads(r.text)
 	if(decodedData['error']==False):
-		print "Mark Job Completed: " + r.text
+		logging.debug("Mark Job Completed: " + r.text)
 		return True
 
 def addJobToOctoprint(job):
 	##Download file
-	print "Downloading file: " + job['gcodePath']
+	logging.debug("Downloading file: " + job['gcodePath'])
 	try:
 		r=requests.get(job['gcodePath'],stream=True)
 		with open(job['gcodePath'].split('/')[-1], 'wb') as f:
@@ -211,7 +215,7 @@ def addJobToOctoprint(job):
 					f.write(chunk)
 					f.flush()
 
-		print "Sending file to octoprint: " + job['gcodePath']
+		logging.debug("Sending file to octoprint: " + job['gcodePath'])
 
 		headers={'X-Api-Key':octoprint_api_key}
 		files = {'file': open(job['gcodePath'].split('/')[-1], 'r')}
@@ -237,10 +241,10 @@ def octoprintFile(job):
 	r=requests.post( 'http://localhost:5000/api/files/local/' + fileName, headers=headers, data=json.dumps(data))
 	# print "Response: " + str(r.status_code)
 	if(r.status_code==204):
-		print "Success"
+		logging.debug("Success")
 		return True
 	else:
-		print "Failed to print: " + str(r) + r.text
+		logging.debug("Failed to print: " + str(r) + r.text)
 		return False
 
 def updateBotStatus(statusCode=99,message=''):
@@ -250,14 +254,14 @@ def updateBotStatus(statusCode=99,message=''):
 		try:
 			r=requests.put(katana_url + 'bots/' + str(myPrinterId) + '/message',data=data,headers=headers)
 		except:
-			print "Could not update bot status. Network Issue."
+			logging.debug("Could not update bot status. Network Issue.")
 	else:
 		data={'status':str(statusCode),'message':message}
 		headers={'Authorization':api_key}
 		try:
 			r=requests.put(katana_url + 'bots/' + str(myPrinterId),data=data,headers=headers)
 		except:
-			print "Could not update bot status. Network Issue."
+			logging.debug("Could not update bot status. Network Issue.")
 		# print "response: " + r.text
 
 #Twisted Implementation
@@ -278,17 +282,17 @@ class HiveClient(Protocol):
 
 	def dataReceived(self, data):
 		global currentJobId
-		print "> Received: ''%s''\n" % (data)
+		logging.debug( "> Received: ''%s''\n" % (data))
 		messages=data.split('\n')
 
 		for message in messages:
-			print "messages: " + message
+			logging.debug("messages: " + message)
 			decodedData=json.loads(message)
 			if(decodedData['type']=='job'):
-				print "received a new job"
+				logging.debug("received a new job")
 				updateBotStatus(statusCode=1,message='Received job: ' + decodedData['filename'])
 				if(addJobToOctoprint(decodedData)==True):
-					print "This worked, mark the file as taken"
+					logging.debug("This worked, mark the file as taken")
 					result=markJobTaken(decodedData['id'])
 					if(result==True):
 						updateBotStatus(statusCode=1,message='Printing: ' + decodedData['filename'])
@@ -303,7 +307,7 @@ class HiveClient(Protocol):
 
 
 	def stopAllTimers(self):
-		print "Stopping all timers"
+		logging.debug("Stopping all timers")
 		self.checkInRepeater.stop
 
 	def checkBotIn(self):
@@ -312,15 +316,15 @@ class HiveClient(Protocol):
 		global currentJobId
 		if(self.hasConnected):
 			showStatus()
-			print "I should check in now. Queen Bee might be worried about me."
+			logging.debug("I should check in now. Queen Bee might be worried about me.")
 
 			data={'type':'checkIn','bot':myPrinterId}
 			self.transport.write(json.dumps(data) + '\n')
 
 			status=printerStatus()
 
-			print "Status: " + status
-			print "isPrinting: " + str(isPrinting)
+			logging.debug("Status: " + status)
+			logging.debug("isPrinting: " + str(isPrinting))
 
 			if(status=="printing complete"):
 				printStatus=getPrintingStatus()
@@ -329,23 +333,23 @@ class HiveClient(Protocol):
 					currentJobId=0
 
 			if(status=="printing"):
-				print "I'm printing"
+				logging.debug("I'm printing")
 				printStatus=getPrintingStatus()
 				updateBotStatus(statusCode=1,message='Printing: ' + printStatus['fileName'] + '<BR/>Percent Complete: ' + str(math.ceil(printStatus['percentComplete'])))
 
 		 	if(status=="idle" and isPrinting==False):
-				print "Requesting job"
+				logging.debug("Requesting job")
 				self.requestJob()
 
 		else:
-			print "We haven't connected yet. No need to check in yet."
+			logging.debug("We haven't connected yet. No need to check in yet.")
 
 	def requestJob(self):
 		if(self.hasConnected):
 			data={'type':'jobRequest','bot':myPrinterId}
 			self.transport.write(json.dumps(data))
 		else:
-			print "We haven't connected yet."
+			logging.debug("We haven't connected yet.")
 
 
 class WorkerBee(object):
@@ -398,22 +402,22 @@ class HiveFactory(ReconnectingClientFactory):
 		self.checkTempRepeater.start(1*15)
 
 	def startedConnecting(self, connector):
-		print 'Started to connect.'
+		logging.debug('Started to connect.')
 
 
 	def buildProtocol(self, addr):
-		print 'Connected.'
-		print 'Resetting reconnection delay'
+		logging.debug('Connected.')
+		logging.debug('Resetting reconnection delay')
 		self.resetDelay()
 		return HiveClient(self)
 
 	def clientConnectionLost(self, connector, reason):
-		print 'Lost connection.  Reason:', reason
+		logging.debug('Lost connection.  Reason:', reason)
 		self.protocol.stopAllTimers();
 		ReconnectingClientFactory.clientConnectionLost(self, connector, reason)
 
 	def clientConnectionFailed(self, connector, reason):
-		print 'Connection failed. Reason:', reason
+		logging.debug('Connection failed. Reason:', reason)
 		self.protocol.stopAllTimers();
 		ReconnectingClientFactory.clientConnectionFailed(self, connector, reason)
 
