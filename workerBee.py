@@ -145,22 +145,6 @@ def showStatus():
 
 	logging.debug("Status: " + status)
 
-
-# def checkBotStatus():
-# 	lastCheckIn=datetime.now()
-# 	headers={'Authorization':api_key}
-# 	r=requests.get(katana_url + 'bots/' + str(myPrinterId) ,headers=headers)
-# 	# print "response: " + r.text
-# 	bot_stats=json.loads(r.text)
-# 	if not((bot_stats['pendingCommand'] == 'NULL') or (bot_stats['pendingCommand'] is None) or (len(bot_stats['pendingCommand'])==0)):
-# 		runCommand(bot_stats['pendingCommand'])
-#
-# 	headers={'Authorization':api_key}
-# 	r=requests.put(katana_url + 'bots/' + str(myPrinterId) + '/checkin',headers=headers)
-#
-# 	tryCaptureImage()
-# 	return bot_stats
-
 def runCommand(gcode):
 	logging.debug('Running Command: ' + gcode)
 	try:
@@ -198,11 +182,15 @@ def markJobTaken(jobID):
 def markJobCompleted(jobID):
 	headers={'Authorization':api_key}
 	data={'status':'2','bot':myPrinterId}
-	r=requests.put(katana_url + 'jobs/' + str(jobID),data=data,headers=headers)
-	decodedData=json.loads(r.text)
-	if(decodedData['error']==False):
-		logging.debug("Mark Job Completed: " + r.text)
-		return True
+	try:
+		r=requests.put(katana_url + 'jobs/' + str(jobID),data=data,headers=headers)
+		decodedData=json.loads(r.text)
+		if(decodedData['error']==False):
+			logging.debug("Mark Job Completed: " + r.text)
+			return True
+	except:
+		logging.debug("Failed to mark job completed: " + r.text)
+		return False
 
 def addJobToOctoprint(job):
 	##Download file
