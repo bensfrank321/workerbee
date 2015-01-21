@@ -189,7 +189,7 @@ def markJobCompleted(jobID):
 			logging.debug("Mark Job Completed: " + r.text)
 			return True
 	except:
-		logging.debug("Failed to mark job completed: " + r.text)
+		logging.debug("Failed to mark job completed: " + str(jobID) + " Status Code: " + r.status_code)
 		return False
 
 def addJobToOctoprint(job):
