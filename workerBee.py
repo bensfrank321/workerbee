@@ -20,21 +20,30 @@ pollreactor.install()
 from twisted.internet import reactor
 from twisted.internet.task import LoopingCall
 import math
+import threading
 
 FORMAT = '%(asctime)-15s %(message)s'
-logging.basicConfig(filename='workerBee.log',level=logging.DEBUG,format=FORMAT)
+logging.basicConfig(filename='workerBee.log',level=logging.ERROR,format=FORMAT)
 
+buttons={}
+maxDisplays=3
+currentDisplay=0
 
 if (KatanaConfig.hasLCD()):
 	import Adafruit_CharLCD as LCD
+	# Make list of button value, text, and backlight color.
+	buttons = ( (LCD.SELECT, 'Select', (1,1,1)),
+	            (LCD.LEFT,   'Left'  , (1,0,0)),
+	            (LCD.UP,     'Up'    , (0,0,1)),
+	            (LCD.DOWN,   'Down'  , (0,1,0)),
+	            (LCD.RIGHT,  'Right' , (1,0,1)) )
+
 	# Initialize the LCD using the pins
 	lcd = LCD.Adafruit_CharLCDPlate()
 	lcd.set_color(1.0, 1.0, 0.0)
 	lcd.clear()
 	lcd.message('Starting...')
 	time.sleep(3.0)
-
-
 
 # s3Path="http://kabar-files.s3.amazonaws.com/"
 
@@ -68,6 +77,40 @@ isPrinting=False
 lastCameraCapture=0
 
 lastCheckIn=0
+
+def checkLCDButtons():
+	global currentDisplay
+	global maxDisplays
+
+	while True:
+		# Loop through each button and check if it is pressed.
+		for button in buttons:
+			if lcd.is_pressed(button[0]):
+				# Button is pressed, change the message and backlight.
+				if(button[0]==LCD.UP):
+					currentDisplay=currentDisplay-1
+				if(button[0]==LCD.DOWN):
+					currentDisplay=currentDisplay+1
+
+				if currentDisplay > maxDisplays:
+					currentDisplay=0
+
+				if currentDisplay < 0:
+					currentDisplay=maxDisplays
+
+				lcd.clear()
+				if currentDisplay == 0:
+					showStatus()
+
+				if currentDisplay == 1:
+					showIP()
+
+				if currentDisplay == 2:
+					showPrinterTemps()
+
+				if currentDisplay == 3:
+					showPrintingStatus()
+
 
 def printerStatus():
 	# data={'status':str(statusCode),'message':message}
@@ -116,19 +159,62 @@ def getPrintingStatus():
 def printerTemps():
 	headers={'X-Api-Key':octoprint_api_key}
 	r=requests.get('http://localhost:5000/' + 'api/printer',headers=headers)
-	decodedData=json.loads(r.text)
-	temps={}
-	temps['bed']=decodedData['temps']['bed']['actual']
-	temps['hotend']=decodedData['temps']['tool0']['actual']
-	logging.debug("bed: " + str(temps['bed']))
-	logging.debug("hotend: " + str(temps['hotend']))
-	return temps
+	try:
+		decodedData=json.loads(r.text)
+		temps={}
+		temps['bed']=decodedData['temps']['bed']['actual']
+		temps['hotend']=decodedData['temps']['tool0']['actual']
+		logging.debug("bed: " + str(temps['bed']))
+		logging.debug("hotend: " + str(temps['hotend']))
+		return temps
+	except:
+		logging.debug("could not get temp from API")
+		temps={}
+		temps['bed']='X'
+		temps['hotend']='X'
+		return temps
 
 def updateLCD(message,color):
 	if (KatanaConfig.hasLCD()):
 		lcd.clear()
-		lcd.set_color(1.0, 1.0, 0.0)
+		lcd.set_color(*color)
 		lcd.message(message)
+
+def showPrinterTemps():
+	temps=printerTemps()
+	if(temps['hotend']>40):
+		lcd.set_color(1.0,0.0,0.0)
+	else:
+		lcd.set_color(0.0,0.0,1.0)
+
+	lcd.clear()
+	lcd.message("E Temp:" + str(temps['hotend']) + "\n")
+	lcd.message("B Temp:" + str(temps['bed']) + "\n")
+
+def showPrintingStatus():
+	global isPrinting
+	headers={'X-Api-Key':octoprint_api_key}
+	r=requests.get('http://localhost:5000/' + 'api/job',headers=headers)
+	decodedData=json.loads(r.text)
+	global printingStatus
+	lcdColor=[0.0,1.0,0.0]
+	if ( decodedData['state'] == 'Printing'):
+		printingStatus['percentComplete']=decodedData['progress']['completion']
+		printingStatus['timeLeft']=decodedData['progress']['printTimeLeft']
+		printingStatus['fileName']=decodedData['job']['file']['name']
+		lcdColor=[1.0,1.0,0.0]
+		isPrinting=True
+	else:
+		lcdColor=[0.0,1.0,0.0]
+		if str(decodedData['progress']['completion']) == 'None':
+			logging.error("Percent is None")
+			printingStatus['percentComplete']=0.0
+		else:
+			printingStatus['percentComplete']=decodedData['progress']['completion']
+		printingStatus['timeLeft']='0'
+		printingStatus['fileName']='0'
+
+		updateLCD("File: " + str(printingStatus['fileName']) + "\n" + str(math.ceil(printingStatus['percentComplete'])),lcdColor)
 
 def showIP():
 	if (KatanaConfig.hasLCD()):
@@ -429,6 +515,12 @@ class HiveFactory(ReconnectingClientFactory):
 	# 	else:
 	# 		print "We haven't connected yet. No need to check in yet."
 
+try:
+	t=threading.Thread(target=checkLCDButtons)
+	# t.daemon = True  # set thread to daemon ('ok' won't be printed in this case)
+	t.start()
+except:
+   print "Error: unable to start thread"
 
 reactor.connectTCP("fabhive.buzz", 5005, HiveFactory())
 
