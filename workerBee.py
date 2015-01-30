@@ -81,6 +81,7 @@ def printerStatus():
 		r=requests.get('http://localhost:5000/' + 'api/job',headers=headers)
 		decodedData=json.loads(r.text)
 		if ( decodedData['state'] == 'Operational' and bot_stats['status']==0):
+			isPrinting=False
 			return 'idle'
 		if ( decodedData['state'] == 'Operational' and bot_stats['status']==1):
 			isPrinting=False
@@ -173,11 +174,14 @@ def markJobTaken(jobID):
 	else:
 		headers={'Authorization':api_key}
 		data={'status':'1','bot':myPrinterId}
-		r=requests.put(katana_url + 'jobs/' + str(jobID),data=data,headers=headers)
-		decodedData=json.loads(r.text)
-		if(decodedData['error']==False):
-			logging.debug("Mark Job Taken: " + r.text)
-			return True
+		try:
+			r=requests.put(katana_url + 'jobs/' + str(jobID),data=data,headers=headers)
+			decodedData=json.loads(r.text)
+			if(decodedData['error']==False):
+				logging.debug("Mark Job Taken: " + r.text)
+				return True
+		except:
+			return False
 
 def markJobCompleted(jobID):
 	headers={'Authorization':api_key}
