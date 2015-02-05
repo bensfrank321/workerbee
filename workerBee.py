@@ -88,6 +88,9 @@ def printerStatus():
 			return 'printing complete'
 		if ( decodedData['state'] == 'Printing' and bot_stats['status']!=0):
 			return 'printing'
+		if(decodedData['state'] == 'Printing' and bot_stats['status']==0):
+			updateBotStatus(statusCode=1,message='Connected to the hive.')
+			return 'printing'
 		if ( decodedData['state'] == 'Closed' or bot_stats['status']!=0):
 			return 'offline'
 		return 'other'
