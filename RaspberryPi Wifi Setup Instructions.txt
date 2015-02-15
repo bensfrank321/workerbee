@@ -1,3 +1,5 @@
+1. Edit /etc/network/interfaces to include:
+
 allow-hotplug wlan0
 auto wlan0
 iface wlan0 inet dhcp
@@ -5,10 +7,16 @@ pre-up wpa_supplicant -B w -D wext -i wlan0 -c /etc/wpa_supplicant/wpa_supplican
 post-down killall -q wpa_supplicant
 
 
+2. Generate your wireless passphrase with:
+     wpa_passphrase myssid password
 
-$ wpa_passphrase myssid password
+It should output:
+
 network={
    ssid="myssid"
    #psk="password"
    psk=2fe820b1e836cb734fb88172egfi01c5d40bb8449cc55c6e26ce300bbe8e04c7
 }
+
+
+3.  Copy the output into your /etc/wpa_supplicant/wpa_supplicant.conf file

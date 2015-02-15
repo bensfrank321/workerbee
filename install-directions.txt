@@ -139,6 +139,10 @@ chmod a+x $HOME/workerbee/workerBee.py
 cat $HOME/workerbee/profile-setup >> $HOME/.profile
 source $HOME/.profile
 
+
+sudo dpkg-reconfigure tzdata
+
+
 cd ~/
 git clone http://daniel-baumann.ch/git/software/dosfstools.git
 cd dosfstools
