@@ -6,7 +6,7 @@ This is the FabHive client that runs on a raspberry pi and pulls down print jobs
 
 
 ## Installation ##
-1. Download PI image file:
+1. Download PI image file: [workerBee-20150205-8g.img.zip](https://fabhive.s3.amazonaws.com/workerBee-20150205-8g.img.zip)
 2. Image Raspberry Pi using your favorite tool (I like [Apple Pi Baker](http://www.tweaking4all.com/hardware/raspberry-pi/macosx-apple-pi-baker/) )
 3. Setup your wifi on your Raspberry Pi
 4. See install-directions.txt for the rest.
