@@ -187,17 +187,18 @@ def markJobTaken(jobID):
 			return False
 
 def markJobCompleted(jobID):
-	headers={'Authorization':api_key}
-	data={'status':'2','bot':myPrinterId}
-	try:
-		r=requests.put(katana_url + 'jobs/' + str(jobID),data=data,headers=headers)
-		decodedData=json.loads(r.text)
-		if(decodedData['error']==False):
-			logging.debug("Mark Job Completed: " + r.text)
-			return True
-	except:
-		logging.debug("Failed to mark job completed: " + str(jobID))
-		return False
+	if(jobID>0):
+		headers={'Authorization':api_key}
+		data={'status':'2','bot':myPrinterId}
+		try:
+			r=requests.put(katana_url + 'jobs/' + str(jobID),data=data,headers=headers)
+			decodedData=json.loads(r.text)
+			if(decodedData['error']==False):
+				logging.debug("Mark Job Completed: " + r.text)
+				return True
+		except:
+			logging.debug("Failed to mark job completed: " + str(jobID))
+			return False
 
 def addJobToOctoprint(job):
 	##Download file
@@ -324,7 +325,9 @@ class HiveClient(Protocol):
 			if(status=="printing complete"):
 				printStatus=getPrintingStatus()
 				if(printingStatus['percentComplete']==100):
-					markJobCompleted(currentJobId)
+					while True:
+						if(markJobCompleted(currentJobId)):
+							break
 					currentJobId=0
 
 			if(status=="printing"):
