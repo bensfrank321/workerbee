@@ -187,6 +187,7 @@ def markJobTaken(jobID):
 			return False
 
 def markJobCompleted(jobID):
+	logging.debug("Marki Job Complete function for job id: " + str(jobID))
 	if(jobID>0):
 		headers={'Authorization':api_key}
 		data={'status':'2','bot':myPrinterId}
@@ -196,9 +197,13 @@ def markJobCompleted(jobID):
 			if(decodedData['error']==False):
 				logging.debug("Mark Job Completed: " + r.text)
 				return True
+			else:
+				return True
 		except:
 			logging.debug("Failed to mark job completed: " + str(jobID))
 			return False
+
+	return True
 
 def addJobToOctoprint(job):
 	##Download file
@@ -324,11 +329,16 @@ class HiveClient(Protocol):
 
 			if(status=="printing complete"):
 				printStatus=getPrintingStatus()
-				if(printingStatus['percentComplete']==100):
-					while True:
-						if(markJobCompleted(currentJobId)):
-							break
-					currentJobId=0
+				if(currentJobId>0):
+					if(printingStatus['percentComplete']==100):
+						while True:
+							logging.debug("Marking job complete")
+							result=markJobCompleted(currentJobId)
+							logging.debug("Marking job complete: " + str(result))
+							if(result):
+								logging.debug("Job marked complete")
+								break
+						currentJobId=0
 
 			if(status=="printing"):
 				logging.debug("I'm printing")
