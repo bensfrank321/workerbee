@@ -20,6 +20,9 @@ pollreactor.install()
 from twisted.internet import reactor
 from twisted.internet.task import LoopingCall
 import math
+import urllib
+from PIL import Image
+
 
 FORMAT = '%(asctime)-15s %(message)s'
 logging.basicConfig(filename='workerBee.log',level=logging.DEBUG,format=FORMAT)
@@ -192,7 +195,22 @@ def markJobCompleted(jobID):
 		headers={'Authorization':api_key}
 		data={'status':'2','bot':myPrinterId}
 		try:
-			r=requests.put(katana_url + 'jobs/' + str(jobID),data=data,headers=headers)
+			file = open('webcam.jpg','wb')
+			file.write(urllib.urlopen("http://octopi-5.local:8080/?action=snapshot").read())
+			file.close
+			file=Image.open('webcam.jpg')
+			rotateImaged=file.rotate(180)
+			rotateImaged.save('webcam-flipped.jpg')
+			file=open('webcam-flipped.jpg','r')
+			files={'file':('webcam.jpg',file)}
+		except:
+			logging.debug("Failed to get image of completed job")
+
+		try:
+			if 'files' in locals():
+				r=requests.post(katana_url + 'jobs/' + str(jobID),data=data,headers=headers,files=files)
+			else:
+				r=requests.put(katana_url + 'jobs/' + str(jobID),data=data,headers=headers)
 			decodedData=json.loads(r.text)
 			if(decodedData['error']==False):
 				logging.debug("Mark Job Completed: " + r.text)
