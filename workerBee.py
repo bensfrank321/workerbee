@@ -197,7 +197,7 @@ def markJobCompleted(jobID):
 		data={'status':'2','bot':myPrinterId}
 		try:
 			file = open('webcam.jpg','wb')
-			file.write(urllib.urlopen("http://octopi-5.local:8080/?action=snapshot").read())
+			file.write(urllib.urlopen("http://127.0.0.1:8080/?action=snapshot").read())
 			file.close
 			logging.debug("Saved Image")
 			im=Image.open('webcam.jpg')
