@@ -57,6 +57,8 @@ myPrinterId=KatanaConfig.myPrinterId()
 printerPort=KatanaConfig.printerPort()
 webcam_command=KatanaConfig.WEBCAM_CAPTURE()
 
+shouldFlipCamera=KatanaConfig.flipCamera()
+
 loud = True
 statusreport = True
 
@@ -202,11 +204,15 @@ def markJobCompleted(jobID):
 			logging.debug("Saved Image")
 			im=Image.open('webcam.jpg')
 			logging.debug("Opened Image")
-			rotateImaged=im.rotate(180)
-			logging.debug("Rotated Image")
-			rotateImaged.save('webcam-flipped.jpg')
-			logging.debug("Saved Rotated Image")
-			file=open('webcam-flipped.jpg','r')
+			if shouldFlipCamera:
+				rotateImaged=im.rotate(180)
+				logging.debug("Rotated Image")
+				rotateImaged.save('webcam-flipped.jpg')
+				logging.debug("Saved Rotated Image")
+				file=open('webcam-flipped.jpg','r')
+			else:
+				file=open('webcam.jpg','r')
+
 			files={'file':('webcam.jpg',file)}
 		except:
 			logging.debug("Failed to get image of completed job: " + str(sys.exc_info()[0]))
