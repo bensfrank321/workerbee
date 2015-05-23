@@ -22,7 +22,8 @@ from twisted.internet.task import LoopingCall
 import math
 import urllib
 from PIL import Image
-
+from PIL import ImageFile
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 FORMAT = '%(asctime)-15s %(message)s'
 logging.basicConfig(filename='workerBee.log',level=logging.DEBUG,format=FORMAT)
@@ -55,6 +56,8 @@ myPrinterId=KatanaConfig.myPrinterId()
 
 printerPort=KatanaConfig.printerPort()
 webcam_command=KatanaConfig.WEBCAM_CAPTURE()
+
+shouldFlipCamera=KatanaConfig.flipCamera()
 
 loud = True
 statusreport = True
@@ -196,20 +199,31 @@ def markJobCompleted(jobID):
 		data={'status':'2','bot':myPrinterId}
 		try:
 			file = open('webcam.jpg','wb')
-			file.write(urllib.urlopen("http://octopi-5.local:8080/?action=snapshot").read())
+			file.write(urllib.urlopen("http://127.0.0.1:8080/?action=snapshot").read())
 			file.close
-			file=Image.open('webcam.jpg')
-			rotateImaged=file.rotate(180)
-			rotateImaged.save('webcam-flipped.jpg')
-			file=open('webcam-flipped.jpg','r')
+			logging.debug("Saved Image")
+			im=Image.open('webcam.jpg')
+			logging.debug("Opened Image")
+			if shouldFlipCamera:
+				rotateImaged=im.rotate(180)
+				logging.debug("Rotated Image")
+				rotateImaged.save('webcam-flipped.jpg')
+				logging.debug("Saved Rotated Image")
+				file=open('webcam-flipped.jpg','r')
+			else:
+				file=open('webcam.jpg','r')
+
 			files={'file':('webcam.jpg',file)}
 		except:
-			logging.debug("Failed to get image of completed job")
+			logging.debug("Failed to get image of completed job: " + str(sys.exc_info()[0]))
 
 		try:
 			if 'files' in locals():
+				logging.debug("Posting Job Complete w/ Image: " + str(jobID))
 				r=requests.post(katana_url + 'jobs/' + str(jobID),data=data,headers=headers,files=files)
+
 			else:
+				logging.debug("Putting Job Complete w/out image: " + str(jobID))
 				r=requests.put(katana_url + 'jobs/' + str(jobID),data=data,headers=headers)
 			decodedData=json.loads(r.text)
 			if(decodedData['error']==False):

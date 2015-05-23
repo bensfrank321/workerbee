@@ -2,9 +2,12 @@ def queue_id():
 	queue_id=1
 	return queue_id
 
-def myPrinterId():	
+def myPrinterId():
 	myPrinterId=7
 	return myPrinterId
+
+def flipCamera():
+	return False
 
 def printerPort():
 	printerPort='/dev/ttyACM0'
