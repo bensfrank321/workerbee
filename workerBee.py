@@ -23,6 +23,9 @@ import math
 import urllib
 from PIL import Image
 from PIL import ImageFile
+import os.path
+import inspect, shutil
+
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 FORMAT = '%(asctime)-15s %(message)s'
@@ -54,8 +57,8 @@ requests_log.setLevel(logging.WARNING)
 queue_id=KatanaConfig.queue_id()
 myPrinterId=KatanaConfig.myPrinterId()
 
-printerPort=KatanaConfig.printerPort()
-webcam_command=KatanaConfig.WEBCAM_CAPTURE()
+# printerPort=KatanaConfig.printerPort()
+# webcam_command=KatanaConfig.WEBCAM_CAPTURE()
 
 shouldFlipCamera=KatanaConfig.flipCamera()
 
@@ -74,6 +77,47 @@ isPrinting=False
 lastCameraCapture=0
 
 lastCheckIn=0
+
+path_to_watch = "/dev/disk/by-label/"
+path_mount_base = "/tmp/fabhive"
+filename_to_look_for="/KatanaConfig.py"
+
+print inspect.getfile(inspect.currentframe()) # script filename (usually with path)
+script_directory=os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe()))) # script directory
+
+print script_directory
+
+before = dict ([(f, None) for f in os.listdir (path_to_watch)])
+
+def rebootscript():
+    print "rebooting system"
+    command = "/sbin/reboot"
+    subprocess.call(command, shell = True)
+
+def checkConfigFile():
+	global before
+	after = dict ([(f, None) for f in os.listdir (path_to_watch)])
+	added = [f for f in after if not f in before]
+	removed = [f for f in before if not f in after]
+	if added:
+		i=0
+		for f in added:
+			print "Added: ", ", ", f
+			if not (os.path.isdir(path_mount_base + str(i))):
+				os.mkdir(path_mount_base + str(i))
+			subprocess.check_call(["mount",path_to_watch + f,path_mount_base + str(i)])
+			if(os.path.isfile(path_mount_base+str(i)+filename_to_look_for)):
+				print "Found config file"
+				print "Copying config file"
+				shutil.copyfile(path_mount_base+str(i)+filename_to_look_for,script_directory+filename_to_look_for);
+				rebootscript()
+			else:
+				print "No config file on drive, unmounting"
+				subprocess.check_call(["umount",path_mount_base + str(i)])
+			i=i+1
+
+	if removed: print "Removed: ", ", ".join (removed)
+	before = after
 
 def printerStatus():
 	# data={'status':str(statusCode),'message':message}
@@ -347,6 +391,7 @@ class HiveClient(Protocol):
 		global printingStatus
 		global isPrinting
 		global currentJobId
+		checkConfigFile();
 		if(self.hasConnected):
 			showStatus()
 			logging.debug("I should check in now. Queen Bee might be worried about me.")
