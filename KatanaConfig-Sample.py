@@ -1,9 +1,9 @@
 def queue_id():
-	queue_id=1
+	queue_id=4
 	return queue_id
 
 def myPrinterId():
-	myPrinterId=7
+	myPrinterId=9999
 	return myPrinterId
 
 def flipCamera():
@@ -20,19 +20,3 @@ def KATANA_KEY():
 def KATANA_URL():
 	katana_url="http://URL_FOR_KATANA"
 	return katana_url
-
-def AWS_KEY():
-	AWS_KEY='AWS_KEY'
-	return AWS_KEY
-
-def AWS_SECRET():
-	AWS_SECRET='AWS_SECRET'
-	return AWS_SECRET
-
-def bucket_name():
-	bucket_name='AWS_BUCKET_NAME'
-	return bucket_name
-
-def WEBCAM_CAPTURE():
-	webcam_capture_command='/usr/bin/raspistill -w 1024 -h 768 -q 60 -o ./pi-' + str(myPrinterId()) + '.jpg '
-	return webcam_capture_command
