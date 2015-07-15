@@ -89,6 +89,15 @@ print script_directory
 
 before = dict ([(f, None) for f in os.listdir (path_to_watch)])
 
+def freeSpace():
+	df = subprocess.Popen(["df", "/"], stdout=subprocess.PIPE)
+	output = df.communicate()[0]
+	device, size, used, available, percent, mountpoint = output.split("\n")[1].split()
+	logging.debug("Used: " + str(percent))
+	percent=percent.replace('%','')
+	percent="." + percent
+	return percent
+
 def rebootscript():
     print "rebooting system"
     command = "/sbin/reboot"
@@ -163,6 +172,10 @@ def getPrintingStatus():
 		printingStatus['percentComplete']=decodedData['progress']['completion']
 		printingStatus['timeLeft']='0'
 		printingStatus['fileName']='0'
+
+	r=requests.get('http://localhost:5000/' + 'api/printer',headers=headers)
+	decodedData=json.loads(r.text)
+	printingStatus['temperature']=decodedData['temps']['tool0']['actual']
 
 	return printingStatus
 
@@ -324,16 +337,16 @@ def octoprintFile(job):
 		logging.debug("Failed to print: " + str(r) + r.text)
 		return False
 
-def updateBotStatus(statusCode=99,message=''):
+def updateBotStatus(statusCode=99,message='',temp=0,diskSpace=0):
 	if statusCode==99:
-		data={'message':message}
+		data={'message':message,'temp':temp,'diskSpace':diskSpace}
 		headers={'Authorization':api_key}
 		try:
 			r=requests.put(katana_url + 'bots/' + str(myPrinterId) + '/message',data=data,headers=headers)
 		except:
 			logging.debug("Could not update bot status. Network Issue.")
 	else:
-		data={'status':str(statusCode),'message':message}
+		data={'status':str(statusCode),'message':message,'temp':temp,'diskSpace':diskSpace}
 		headers={'Authorization':api_key}
 		try:
 			r=requests.put(katana_url + 'bots/' + str(myPrinterId),data=data,headers=headers)
@@ -406,6 +419,8 @@ class HiveClient(Protocol):
 
 			if(status=="printing complete"):
 				printStatus=getPrintingStatus()
+				diskUsed=freeSpace()
+				updateBotStatus(statusCode=99,message='Checked In',temp=printStatus['temperature'],diskSpace=diskUsed)
 				if(currentJobId>0):
 					if(printingStatus['percentComplete']==100):
 						while True:
@@ -420,7 +435,8 @@ class HiveClient(Protocol):
 			if(status=="printing"):
 				logging.debug("I'm printing")
 				printStatus=getPrintingStatus()
-				updateBotStatus(statusCode=1,message='Printing: ' + printStatus['fileName'] + '<BR/>Percent Complete: ' + str(math.ceil(printStatus['percentComplete'])))
+				diskUsed=freeSpace()
+				updateBotStatus(statusCode=1,message='Printing: ' + printStatus['fileName'] + '<BR/>Percent Complete: ' + str(math.ceil(printStatus['percentComplete'])),temp=printStatus['temperature'],diskSpace=diskUsed)
 
 		 	if(status=="idle" and isPrinting==False):
 				logging.debug("Requesting job")
