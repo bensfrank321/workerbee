@@ -1,0 +1,8 @@
+RPi.GPIO 
+requests 
+boto 
+logging 
+twisted 
+pillow 
+Image
+
