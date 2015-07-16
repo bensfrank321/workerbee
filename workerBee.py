@@ -62,8 +62,8 @@ myPrinterId=KatanaConfig.myPrinterId()
 try:
 	shouldFlipCamera=KatanaConfig.flipCamera()
 except:
-	shouldFlipCamera=fasle
-
+	shouldFlipCamera=False
+	
 loud = True
 statusreport = True
 
