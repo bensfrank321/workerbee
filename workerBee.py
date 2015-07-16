@@ -59,8 +59,10 @@ myPrinterId=KatanaConfig.myPrinterId()
 
 # printerPort=KatanaConfig.printerPort()
 # webcam_command=KatanaConfig.WEBCAM_CAPTURE()
-
-shouldFlipCamera=KatanaConfig.flipCamera()
+try:
+	shouldFlipCamera=KatanaConfig.flipCamera()
+except:
+	shouldFlipCamera=fasle
 
 loud = True
 statusreport = True
