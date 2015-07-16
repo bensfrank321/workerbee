@@ -175,8 +175,13 @@ def getPrintingStatus():
 
 	r=requests.get('http://localhost:5000/' + 'api/printer',headers=headers)
 	decodedData=json.loads(r.text)
-	printingStatus['temperature']=decodedData['temps']['tool0']['actual']
-
+	try:
+		printingStatus['temperature']=decodedData['temps']['tool0']['actual']
+	except:
+		try:
+			printingStatus['temperature']=decodedData['temperature']['tool0']['actual']
+		except:
+			printingStatus['temperature']=0
 	return printingStatus
 
 
