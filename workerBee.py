@@ -100,11 +100,13 @@ if (hasLCD):
 
 MINUTES = 60.0
 
+# script filename (usually with path)
+# print inspect.getfile(inspect.currentframe())
+# script directory
+script_directory=os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 
-print inspect.getfile(inspect.currentframe()) # script filename (usually with path)
-script_directory=os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe()))) # script directory
-
-print script_directory
+# print script_directory
+print "WorkerBee started."
 
 before = dict ([(f, None) for f in os.listdir (path_to_watch)])
 
@@ -114,6 +116,7 @@ def rebootscript():
     subprocess.call(command, shell = True)
 
 def checkConfigFile():
+	app_log.debug("Checking for new config file")
 	global before
 	after = dict ([(f, None) for f in os.listdir (path_to_watch)])
 	added = [f for f in after if not f in before]
@@ -121,21 +124,23 @@ def checkConfigFile():
 	if added:
 		i=0
 		for f in added:
-			print "Added: ", ", ", f
+			app_log.debug("New Device Found: " + f)
 			if not (os.path.isdir(path_mount_base + str(i))):
 				os.mkdir(path_mount_base + str(i))
 			subprocess.check_call(["mount",path_to_watch + f,path_mount_base + str(i)])
 			if(os.path.isfile(path_mount_base+str(i)+filename_to_look_for)):
-				print "Found config file"
-				print "Copying config file"
+				app_log.debug("Found new config file")
 				shutil.copyfile(path_mount_base+str(i)+filename_to_look_for,script_directory+filename_to_look_for);
 				rebootscript()
 			else:
-				print "No config file on drive, unmounting"
+				app_log.debug("No config file on drive, unmounting")
 				subprocess.check_call(["umount",path_mount_base + str(i)])
 			i=i+1
+	else:
+		app_log.debug("No new devices")
 
-	if removed: print "Removed: ", ", ".join (removed)
+	if removed:
+		app_log.debug("Removed: " + ' '.join(['%s' % f for f in removed]))
 	before = after
 
 def printerStatus():
@@ -366,14 +371,18 @@ class HiveClient(Protocol):
 		self.factory = factory
 		self.hasConnected=False
 		self.checkInRepeater = LoopingCall(self.checkBotIn)
+		self.configFileRepeater=LoopingCall(checkConfigFile)
 
 	def connectionMade(self):
 		data={'type':'connect','bot':workerBeeId}
 		self.transport.write(json.dumps(data))
 
 		updateBotStatus(statusCode=1,message='Connected to the hive.')
-
+		##Check In to FabHive every minute
 		self.checkInRepeater.start(1 * MINUTES)
+
+		##Check for new config file every 30 seconds
+		self.configFileRepeater.start(1 * .5 * MINUTES,now=True)
 		self.hasConnected=True
 
 	def dataReceived(self, data):
@@ -406,11 +415,11 @@ class HiveClient(Protocol):
 		app_log.debug("Stopping all timers")
 		self.checkInRepeater.stop
 
+
 	def checkBotIn(self):
 		global printingStatus
 		global isPrinting
 		global currentJobId
-		checkConfigFile();
 		if(self.hasConnected):
 			showStatus()
 			app_log.debug("I should check in now. Queen Bee might be worried about me.")
@@ -537,14 +546,6 @@ class HiveFactory(ReconnectingClientFactory):
 			lcd.clear()
 			lcd.message("E Temp:" + str(temps['hotend']) + "\n")
 			lcd.message("B Temp:" + str(temps['bed']) + "\n")
-
-	# def checkInTimer(self):
-	# 	if(self.hasConnected):
-	# 		print "I should check in now. Queen Bee might be worried about me."
-	# 		self.protocol.checkBotIn
-	# 	else:
-	# 		print "We haven't connected yet. No need to check in yet."
-
 
 reactor.connectTCP("fabhive.buzz", 5005, HiveFactory())
 
