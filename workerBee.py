@@ -76,6 +76,7 @@ octoprint_api_key=ConfigSectionMap("OctoPrint")['apikey']
 currentJobId = 0
 printingStatus={}
 isPrinting=False
+octoprintAPIVersion={}
 
 requests_log = logging.getLogger("requests")
 requests_log.setLevel(logging.WARNING)
@@ -84,6 +85,7 @@ requests_log.setLevel(logging.WARNING)
 path_to_watch = "/dev/disk/by-label/"
 path_mount_base = "/tmp/fabhive"
 filename_to_look_for="/config.ini"
+before = dict ([(f, None) for f in os.listdir (path_to_watch)])
 
 
 
@@ -105,10 +107,11 @@ MINUTES = 60.0
 # script directory
 script_directory=os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 
+
 # print script_directory
 print "WorkerBee started."
 
-before = dict ([(f, None) for f in os.listdir (path_to_watch)])
+
 
 def rebootscript():
     print "rebooting system"
@@ -143,6 +146,24 @@ def checkConfigFile():
 		app_log.debug("Removed: " + ' '.join(['%s' % f for f in removed]))
 	before = after
 
+def getOctoprintAPIVersion():
+	global octoprintAPIVersion
+
+	headers={'X-Api-Key':octoprint_api_key}
+	try:
+		r=requests.get('http://localhost:5000/' + 'api/version',headers=headers)
+		decodedData=json.loads(r.text)
+		octoprintAPIVersion['api']=decodedData['api']
+		octoprintAPIVersion['server']=decodedData['server']
+		app_log.debug("Octoprint API Versions: API(" + octoprintAPIVersion['api'] + ") Server("+octoprintAPIVersion['server']+")")
+	except:
+		app_log.debug("Exceptiong determining API version" + sys.exc_info()[0])
+		app_log.debug("\tResponse Text: " + r.text)
+		if(r.text == "Invalid API key"):
+			octoprintAPIVersion['api']='9999'
+
+
+
 def printerStatus():
 	# data={'status':str(statusCode),'message':message}
 	global isPrinting
@@ -169,7 +190,14 @@ def printerStatus():
 			return 'offline'
 		return 'other'
 	except:
-		return 'other'
+		app_log.debug("Exceptiong determining printer status")
+		app_log.debug("API Version: " + str(getOctoprintAPIVersion()))
+		if(octoprintAPIVersion['api']=='9999'):
+			app_log.debug("Bad API key for OctoPrint")
+			updateBotStatus(3,'Bad API key for OctoPrint')
+			return 'offline'
+		else:
+			return 'other'
 
 
 def getPrintingStatus():
@@ -547,6 +575,7 @@ class HiveFactory(ReconnectingClientFactory):
 			lcd.message("E Temp:" + str(temps['hotend']) + "\n")
 			lcd.message("B Temp:" + str(temps['bed']) + "\n")
 
+getOctoprintAPIVersion()
 reactor.connectTCP("fabhive.buzz", 5005, HiveFactory())
 
 # reactor.callWhenRunning(WorkerBee())
