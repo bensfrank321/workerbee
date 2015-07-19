@@ -1,11 +1,12 @@
 #!/usr/bin/python
 
-import KatanaConfig
+import ConfigParser
 import subprocess
 import sys
 import time
 import os
 import logging
+from logging.handlers import RotatingFileHandler
 import requests, json
 import boto
 from boto.s3.key import Key
@@ -28,11 +29,65 @@ import inspect, shutil
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
+#Config File Preparation
+Config = ConfigParser.ConfigParser()
+if(os.path.isfile('config.ini')):
+	Config.read("config.ini")
+else:
+	Config.read("config-sample.ini")
+
+def ConfigSectionMap(section):
+    dict1 = {}
+    options = Config.options(section)
+    for option in options:
+		try:
+		    dict1[option] = Config.get(section, option)
+		    if dict1[option] == -1:
+		        DebugPrint("skip: %s" % option)
+		except:
+		    print("exception on %s!" % option)
+		    dict1[option] = None
+    return dict1
+
+# Logging Setup
 FORMAT = '%(asctime)-15s %(message)s'
-logging.basicConfig(filename='workerBee.log',level=logging.DEBUG,format=FORMAT)
+logFile=ConfigSectionMap("WorkerBee")['logfile']
+log_formatter = logging.Formatter('%(asctime)s %(levelname)s %(funcName)s(%(lineno)d) %(message)s')
+
+my_handler = RotatingFileHandler(logFile, mode='a', maxBytes=5*1024*1024,
+                                 backupCount=2, encoding=None, delay=0)
+my_handler.setFormatter(log_formatter)
+my_handler.setLevel(logging.DEBUG)
+
+app_log = logging.getLogger('root')
+app_log.setLevel(logging.DEBUG)
+app_log.addHandler(my_handler)
+
+##Settings from config file
+hasLCD=Config.getboolean("Hardware","lcd")
+queue_id=ConfigSectionMap("FabHive")['queue']
+workerBeeId=ConfigSectionMap("FabHive")['workerbee']
+shouldFlipCamera=Config.getboolean('Hardware','flipcamera')
+katana_url=ConfigSectionMap("FabHive")['fabhiveurl']
+api_key=ConfigSectionMap("FabHive")['apikey']
+octoprint_api_key=ConfigSectionMap("OctoPrint")['apikey']
+
+##Other startup settings
+currentJobId = 0
+printingStatus={}
+isPrinting=False
+
+requests_log = logging.getLogger("requests")
+requests_log.setLevel(logging.WARNING)
+
+##File watching setup
+path_to_watch = "/dev/disk/by-label/"
+path_mount_base = "/tmp/fabhive"
+filename_to_look_for="/config.ini"
 
 
-if (KatanaConfig.hasLCD()):
+
+if (hasLCD):
 	import Adafruit_CharLCD as LCD
 	# Initialize the LCD using the pins
 	lcd = LCD.Adafruit_CharLCDPlate()
@@ -43,46 +98,8 @@ if (KatanaConfig.hasLCD()):
 
 
 
-# s3Path="http://kabar-files.s3.amazonaws.com/"
-
 MINUTES = 60.0
 
-currentJobId = 0
-
-printingStatus={}
-
-requests_log = logging.getLogger("requests")
-requests_log.setLevel(logging.WARNING)
-
-queue_id=KatanaConfig.queue_id()
-myPrinterId=KatanaConfig.myPrinterId()
-
-# printerPort=KatanaConfig.printerPort()
-# webcam_command=KatanaConfig.WEBCAM_CAPTURE()
-try:
-	shouldFlipCamera=KatanaConfig.flipCamera()
-except:
-	shouldFlipCamera=False
-	
-loud = True
-statusreport = True
-
-# conn = S3Connection(KatanaConfig.AWS_KEY(),KatanaConfig.AWS_SECRET())
-# bucket=conn.get_bucket(KatanaConfig.bucket_name())
-
-katana_url=KatanaConfig.KATANA_URL()
-api_key=KatanaConfig.KATANA_KEY()
-octoprint_api_key=KatanaConfig.OCTOPRINT_API_KEY()
-
-isPrinting=False
-
-lastCameraCapture=0
-
-lastCheckIn=0
-
-path_to_watch = "/dev/disk/by-label/"
-path_mount_base = "/tmp/fabhive"
-filename_to_look_for="/KatanaConfig.py"
 
 print inspect.getfile(inspect.currentframe()) # script filename (usually with path)
 script_directory=os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe()))) # script directory
@@ -90,15 +107,6 @@ script_directory=os.path.dirname(os.path.abspath(inspect.getfile(inspect.current
 print script_directory
 
 before = dict ([(f, None) for f in os.listdir (path_to_watch)])
-
-def freeSpace():
-	df = subprocess.Popen(["df", "/"], stdout=subprocess.PIPE)
-	output = df.communicate()[0]
-	device, size, used, available, percent, mountpoint = output.split("\n")[1].split()
-	logging.debug("Used: " + str(percent))
-	percent=percent.replace('%','')
-	percent="." + percent
-	return percent
 
 def rebootscript():
     print "rebooting system"
@@ -135,7 +143,7 @@ def printerStatus():
 	global isPrinting
 	headers={'Authorization':api_key}
 	try:
-		r=requests.get(katana_url + 'bots/' + str(myPrinterId) ,headers=headers)
+		r=requests.get(katana_url + 'bots/' + str(workerBeeId) ,headers=headers)
 		bot_stats=json.loads(r.text)
 
 		headers={'X-Api-Key':octoprint_api_key}
@@ -175,15 +183,6 @@ def getPrintingStatus():
 		printingStatus['timeLeft']='0'
 		printingStatus['fileName']='0'
 
-	r=requests.get('http://localhost:5000/' + 'api/printer',headers=headers)
-	decodedData=json.loads(r.text)
-	try:
-		printingStatus['temperature']=decodedData['temps']['tool0']['actual']
-	except:
-		try:
-			printingStatus['temperature']=decodedData['temperature']['tool0']['actual']
-		except:
-			printingStatus['temperature']=0
 	return printingStatus
 
 
@@ -194,18 +193,18 @@ def printerTemps():
 	temps={}
 	temps['bed']=decodedData['temps']['bed']['actual']
 	temps['hotend']=decodedData['temps']['tool0']['actual']
-	logging.debug("bed: " + str(temps['bed']))
-	logging.debug("hotend: " + str(temps['hotend']))
+	app_log.debug("bed: " + str(temps['bed']))
+	app_log.debug("hotend: " + str(temps['hotend']))
 	return temps
 
 def updateLCD(message,color):
-	if (KatanaConfig.hasLCD()):
+	if (hasLCD):
 		lcd.clear()
 		lcd.set_color(1.0, 1.0, 0.0)
 		lcd.message(message)
 
 def showIP():
-	if (KatanaConfig.hasLCD()):
+	if (hasLCD):
 		lcd.clear()
 		# lcd.set_color(1.0,1.0,0.0)
 		lcd.message("IP:" + [(s.connect(('8.8.8.8', 80)), s.getsockname()[0], s.close()) for s in [socket.socket(socket.AF_INET, socket.SOCK_DGRAM)]][0][1] + "\n")
@@ -213,25 +212,25 @@ def showIP():
 def showStatus():
 	status=printerStatus()
 
-	if (KatanaConfig.hasLCD()):
+	if (hasLCD):
 		lcd.clear()
 		lcd.message("Printer Status: \n" + status)
 
-	logging.debug("Status: " + status)
+	app_log.debug("Status: " + status)
 
 def runCommand(gcode):
-	logging.debug('Running Command: ' + gcode)
+	app_log.debug('Running Command: ' + gcode)
 	try:
 		time.sleep(5)
 		p.default(gcode)
 		data={'command':'NULL'}
 		headers={'Authorization':api_key}
-		r=requests.put(katana_url + 'bots/' + str(myPrinterId) + '/command/',data=data,headers=headers)
-		logging.debug("Result: ")
-		logging.debug(r.text)
+		r=requests.put(katana_url + 'bots/' + str(workerBeeId) + '/command/',data=data,headers=headers)
+		app_log.debug("Result: ")
+		app_log.debug(r.text)
 	except:
 	 	e = sys.exc_info()[0]
-	 	logging.debug('Failed to connect to printer: %s' % e)
+	 	app_log.debug('Failed to connect to printer: %s' % e)
 
 def markJobTaken(jobID):
 	##Make sure job isn't already taken
@@ -246,64 +245,64 @@ def markJobTaken(jobID):
 		return False
 	else:
 		headers={'Authorization':api_key}
-		data={'status':'1','bot':myPrinterId}
+		data={'status':'1','bot':workerBeeId}
 		try:
 			r=requests.put(katana_url + 'jobs/' + str(jobID),data=data,headers=headers)
 			decodedData=json.loads(r.text)
 			if(decodedData['error']==False):
-				logging.debug("Mark Job Taken: " + r.text)
+				app_log.debug("Mark Job Taken: " + r.text)
 				return True
 		except:
 			return False
 
 def markJobCompleted(jobID):
-	logging.debug("Marki Job Complete function for job id: " + str(jobID))
+	app_log.debug("Marki Job Complete function for job id: " + str(jobID))
 	if(jobID>0):
 		headers={'Authorization':api_key}
-		data={'status':'2','bot':myPrinterId}
+		data={'status':'2','bot':workerBeeId}
 		try:
 			file = open('webcam.jpg','wb')
 			file.write(urllib.urlopen("http://127.0.0.1:8080/?action=snapshot").read())
 			file.close
-			logging.debug("Saved Image")
+			app_log.debug("Saved Image")
 			im=Image.open('webcam.jpg')
-			logging.debug("Opened Image")
+			app_log.debug("Opened Image")
 			if shouldFlipCamera:
 				rotateImaged=im.rotate(180)
-				logging.debug("Rotated Image")
+				app_log.debug("Rotated Image")
 				rotateImaged.save('webcam-flipped.jpg')
-				logging.debug("Saved Rotated Image")
+				app_log.debug("Saved Rotated Image")
 				file=open('webcam-flipped.jpg','r')
 			else:
 				file=open('webcam.jpg','r')
 
 			files={'file':('webcam.jpg',file)}
 		except:
-			logging.debug("Failed to get image of completed job: " + str(sys.exc_info()[0]))
+			app_log.debug("Failed to get image of completed job: " + str(sys.exc_info()[0]))
 
 		try:
 			if 'files' in locals():
-				logging.debug("Posting Job Complete w/ Image: " + str(jobID))
+				app_log.debug("Posting Job Complete w/ Image: " + str(jobID))
 				r=requests.post(katana_url + 'jobs/' + str(jobID),data=data,headers=headers,files=files)
 
 			else:
-				logging.debug("Putting Job Complete w/out image: " + str(jobID))
+				app_log.debug("Putting Job Complete w/out image: " + str(jobID))
 				r=requests.put(katana_url + 'jobs/' + str(jobID),data=data,headers=headers)
 			decodedData=json.loads(r.text)
 			if(decodedData['error']==False):
-				logging.debug("Mark Job Completed: " + r.text)
+				app_log.debug("Mark Job Completed: " + r.text)
 				return True
 			else:
 				return True
 		except:
-			logging.debug("Failed to mark job completed: " + str(jobID))
+			app_log.debug("Failed to mark job completed: " + str(jobID))
 			return False
 
 	return True
 
 def addJobToOctoprint(job):
 	##Download file
-	logging.debug("Downloading file: " + job['gcodePath'])
+	app_log.debug("Downloading file: " + job['gcodePath'])
 	try:
 		r=requests.get(job['gcodePath'],stream=True)
 		with open(job['gcodePath'].split('/')[-1], 'wb') as f:
@@ -312,7 +311,7 @@ def addJobToOctoprint(job):
 					f.write(chunk)
 					f.flush()
 
-		logging.debug("Sending file to octoprint: " + job['gcodePath'])
+		app_log.debug("Sending file to octoprint: " + job['gcodePath'])
 
 		headers={'X-Api-Key':octoprint_api_key}
 		files = {'file': open(job['gcodePath'].split('/')[-1], 'r')}
@@ -338,27 +337,27 @@ def octoprintFile(job):
 	r=requests.post( 'http://localhost:5000/api/files/local/' + fileName, headers=headers, data=json.dumps(data))
 	# print "Response: " + str(r.status_code)
 	if(r.status_code==204):
-		logging.debug("Success")
+		app_log.debug("Success")
 		return True
 	else:
-		logging.debug("Failed to print: " + str(r) + r.text)
+		app_log.debug("Failed to print: " + str(r) + r.text)
 		return False
 
-def updateBotStatus(statusCode=99,message='',temp=0,diskSpace=0):
+def updateBotStatus(statusCode=99,message=''):
 	if statusCode==99:
-		data={'message':message,'temp':temp,'diskSpace':diskSpace}
+		data={'message':message}
 		headers={'Authorization':api_key}
 		try:
-			r=requests.put(katana_url + 'bots/' + str(myPrinterId) + '/message',data=data,headers=headers)
+			r=requests.put(katana_url + 'bots/' + str(workerBeeId) + '/message',data=data,headers=headers)
 		except:
-			logging.debug("Could not update bot status. Network Issue.")
+			app_log.debug("Could not update bot status. Network Issue.")
 	else:
-		data={'status':str(statusCode),'message':message,'temp':temp,'diskSpace':diskSpace}
+		data={'status':str(statusCode),'message':message}
 		headers={'Authorization':api_key}
 		try:
-			r=requests.put(katana_url + 'bots/' + str(myPrinterId),data=data,headers=headers)
+			r=requests.put(katana_url + 'bots/' + str(workerBeeId),data=data,headers=headers)
 		except:
-			logging.debug("Could not update bot status. Network Issue.")
+			app_log.debug("Could not update bot status. Network Issue.")
 		# print "response: " + r.text
 
 #Twisted Implementation
@@ -369,7 +368,7 @@ class HiveClient(Protocol):
 		self.checkInRepeater = LoopingCall(self.checkBotIn)
 
 	def connectionMade(self):
-		data={'type':'connect','bot':myPrinterId}
+		data={'type':'connect','bot':workerBeeId}
 		self.transport.write(json.dumps(data))
 
 		updateBotStatus(statusCode=1,message='Connected to the hive.')
@@ -379,17 +378,17 @@ class HiveClient(Protocol):
 
 	def dataReceived(self, data):
 		global currentJobId
-		logging.debug( "> Received: ''%s''\n" % (data))
+		app_log.debug( "> Received: ''%s''\n" % (data))
 		messages=data.split('\n')
 
 		for message in messages:
-			logging.debug("messages: " + message)
+			app_log.debug("messages: " + message)
 			decodedData=json.loads(message)
 			if(decodedData['type']=='job'):
-				logging.debug("received a new job")
+				app_log.debug("received a new job")
 				updateBotStatus(statusCode=1,message='Received job: ' + decodedData['filename'])
 				if(addJobToOctoprint(decodedData)==True):
-					logging.debug("This worked, mark the file as taken")
+					app_log.debug("This worked, mark the file as taken")
 					result=markJobTaken(decodedData['id'])
 					if(result==True):
 						updateBotStatus(statusCode=1,message='Printing: ' + decodedData['filename'])
@@ -404,7 +403,7 @@ class HiveClient(Protocol):
 
 
 	def stopAllTimers(self):
-		logging.debug("Stopping all timers")
+		app_log.debug("Stopping all timers")
 		self.checkInRepeater.stop
 
 	def checkBotIn(self):
@@ -414,50 +413,47 @@ class HiveClient(Protocol):
 		checkConfigFile();
 		if(self.hasConnected):
 			showStatus()
-			logging.debug("I should check in now. Queen Bee might be worried about me.")
+			app_log.debug("I should check in now. Queen Bee might be worried about me.")
 
-			data={'type':'checkIn','bot':myPrinterId}
+			data={'type':'checkIn','bot':workerBeeId}
 			self.transport.write(json.dumps(data) + '\n')
 
 			status=printerStatus()
 
-			logging.debug("Status: " + status)
-			logging.debug("isPrinting: " + str(isPrinting))
+			app_log.debug("Status: " + status)
+			app_log.debug("isPrinting: " + str(isPrinting))
 
 			if(status=="printing complete"):
 				printStatus=getPrintingStatus()
-				diskUsed=freeSpace()
-				updateBotStatus(statusCode=99,message='Checked In',temp=printStatus['temperature'],diskSpace=diskUsed)
 				if(currentJobId>0):
 					if(printingStatus['percentComplete']==100):
 						while True:
-							logging.debug("Marking job complete")
+							app_log.debug("Marking job complete")
 							result=markJobCompleted(currentJobId)
-							logging.debug("Marking job complete: " + str(result))
+							app_log.debug("Marking job complete: " + str(result))
 							if(result):
-								logging.debug("Job marked complete")
+								app_log.debug("Job marked complete")
 								break
 						currentJobId=0
 
 			if(status=="printing"):
-				logging.debug("I'm printing")
+				app_log.debug("I'm printing")
 				printStatus=getPrintingStatus()
-				diskUsed=freeSpace()
-				updateBotStatus(statusCode=1,message='Printing: ' + printStatus['fileName'] + '<BR/>Percent Complete: ' + str(math.ceil(printStatus['percentComplete'])),temp=printStatus['temperature'],diskSpace=diskUsed)
+				updateBotStatus(statusCode=1,message='Printing: ' + printStatus['fileName'] + '<BR/>Percent Complete: ' + str(math.ceil(printStatus['percentComplete'])))
 
 		 	if(status=="idle" and isPrinting==False):
-				logging.debug("Requesting job")
+				app_log.debug("Requesting job")
 				self.requestJob()
 
 		else:
-			logging.debug("We haven't connected yet. No need to check in yet.")
+			app_log.debug("We haven't connected yet. No need to check in yet.")
 
 	def requestJob(self):
 		if(self.hasConnected):
-			data={'type':'jobRequest','bot':myPrinterId}
+			data={'type':'jobRequest','bot':workerBeeId}
 			self.transport.write(json.dumps(data))
 		else:
-			logging.debug("We haven't connected yet.")
+			app_log.debug("We haven't connected yet.")
 
 
 class WorkerBee(object):
@@ -480,7 +476,7 @@ class WorkerBee(object):
 		# 	print "waiting for printer to come online"
 		# 	time.sleep(5)
 		updateBotStatus(statusCode=1,message='Printer is online.')
-		if (KatanaConfig.hasLCD()):
+		if (hasLCD):
 			lcd.set_color(0.0, 1.0, 0.0)
 			lcd.clear()
 			lcd.message('Connected.')
@@ -510,28 +506,28 @@ class HiveFactory(ReconnectingClientFactory):
 		self.checkTempRepeater.start(1*15)
 
 	def startedConnecting(self, connector):
-		logging.debug('Started to connect.')
+		app_log.debug('Started to connect.')
 
 
 	def buildProtocol(self, addr):
-		logging.debug('Connected.')
-		logging.debug('Resetting reconnection delay')
+		app_log.debug('Connected.')
+		app_log.debug('Resetting reconnection delay')
 		self.resetDelay()
 		return HiveClient(self)
 
 	def clientConnectionLost(self, connector, reason):
-		logging.debug('Lost connection.  Reason:' + str(reason))
+		app_log.debug('Lost connection.  Reason:' + str(reason))
 		self.protocol.stopAllTimers();
 		ReconnectingClientFactory.clientConnectionLost(self, connector, reason)
 
 	def clientConnectionFailed(self, connector, reason):
-		logging.debug('Connection failed. Reason:' + str(reason))
+		app_log.debug('Connection failed. Reason:' + str(reason))
 		self.protocol.stopAllTimers();
 		ReconnectingClientFactory.clientConnectionFailed(self, connector, reason)
 
 	def checkPrinterTemp(self):
 		# extruderTemp=self.workerBee.pronsole.status.extruder_temp
-		if (KatanaConfig.hasLCD()):
+		if (hasLCD):
 			temps=printerTemps()
 			if(temps['hotend']>40):
 				lcd.set_color(1.0,0.0,0.0)
