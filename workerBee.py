@@ -175,6 +175,9 @@ def printerStatus():
 		headers={'X-Api-Key':octoprint_api_key}
 		r=requests.get('http://localhost:5000/' + 'api/job',headers=headers)
 		decodedData=json.loads(r.text)
+		if(decodedData['state']=='Offline'):
+			updateBotStatus(3,'Printer is offline for octoprint')
+			return 'offline'
 		if ( decodedData['state'] == 'Operational' and bot_stats['status']==0):
 			isPrinting=False
 			return 'idle'
@@ -191,6 +194,7 @@ def printerStatus():
 		return 'other'
 	except:
 		app_log.debug("Exceptiong determining printer status")
+		app_log.debug("Response: " + r.text)
 		app_log.debug("API Version: " + str(getOctoprintAPIVersion()))
 		if(octoprintAPIVersion['api']=='9999'):
 			app_log.debug("Bad API key for OctoPrint")
@@ -377,6 +381,7 @@ def octoprintFile(job):
 		return False
 
 def updateBotStatus(statusCode=99,message=''):
+	app_log.debug("Updating printer status: " + message)
 	if statusCode==99:
 		data={'message':message}
 		headers={'Authorization':api_key}
