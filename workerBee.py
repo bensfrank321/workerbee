@@ -115,7 +115,12 @@ script_directory=os.path.dirname(os.path.abspath(inspect.getfile(inspect.current
 # print script_directory
 print "WorkerBee started."
 
-
+def octoprint_on():
+    try:
+        response=urllib2.urlopen('http://localhost:5000',timeout=1)
+        return True
+    except urllib2.URLError as err: pass
+    return False
 
 def rebootscript():
     print "rebooting system"
@@ -154,18 +159,22 @@ def getOctoprintAPIVersion():
 	global octoprintAPIVersion
 
 	headers={'X-Api-Key':octoprint_api_key}
-	try:
-		r=requests.get('http://localhost:5000/' + 'api/version',headers=headers)
-		decodedData=json.loads(r.text)
-		octoprintAPIVersion['api']=decodedData['api']
-		octoprintAPIVersion['server']=decodedData['server']
-		app_log.debug("Octoprint API Versions: API(" + octoprintAPIVersion['api'] + ") Server("+octoprintAPIVersion['server']+")")
-	except:
-		app_log.debug("Exceptiong determining API version" + sys.exc_info()[0])
-		app_log.debug("\tResponse Text: " + r.text)
-		if(r.text == "Invalid API key"):
-			octoprintAPIVersion['api']='9999'
+	if octoprint_on:
+		try:
+			r=requests.get('http://localhost:5000/' + 'api/version',headers=headers)
+			app_log.debug("R.Text: " + r.text)
+			decodedData=json.loads(r.text)
 
+			octoprintAPIVersion['api']=decodedData['api']
+			octoprintAPIVersion['server']=decodedData['server']
+			app_log.debug("Octoprint API Versions: API(" + octoprintAPIVersion['api'] + ") Server("+octoprintAPIVersion['server']+")")
+		except:
+			app_log.debug("Exceptiong determining API version" + str(sys.exc_info()[0]))
+			app_log.debug("API Key used: " + octoprint_api_key)
+			octoprintAPIVersion['api']='9999'
+	else:
+		app_log.debug("OctoPrint is not up yet")
+		updateBotStatus(2,'OctoPrint is not up yet')
 
 
 def printerStatus():
