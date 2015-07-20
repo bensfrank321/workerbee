@@ -22,6 +22,9 @@ from twisted.internet import reactor
 from twisted.internet.task import LoopingCall
 import math
 import urllib
+from poster.encode import multipart_encode
+from poster.streaminghttp import register_openers
+import urllib2
 from PIL import Image
 from PIL import ImageFile
 import os.path
@@ -87,7 +90,8 @@ path_mount_base = "/tmp/fabhive"
 filename_to_look_for="/config.ini"
 before = dict ([(f, None) for f in os.listdir (path_to_watch)])
 
-
+##Used for uploading files
+register_openers()
 
 if (hasLCD):
 	import Adafruit_CharLCD as LCD
@@ -350,9 +354,18 @@ def addJobToOctoprint(job):
 
 		app_log.debug("Sending file to octoprint: " + job['gcodePath'])
 
-		headers={'X-Api-Key':octoprint_api_key}
-		files = {'file': open(job['gcodePath'].split('/')[-1], 'r')}
+
+
+		datagen, headers = multipart_encode({"file": open(job['gcodePath'].split('/')[-1], "rb")})
+		headers['X-Api-Key']=octoprint_api_key
+		request = urllib2.Request("http://localhost:5000/api/files/local", datagen, headers)
+		# Actually do the request, and get the response
+		print urllib2.urlopen(request).read()
+
+
+		files = {job['gcodePath']: open(job['gcodePath'].split('/')[-1], 'rb')}
 		r=requests.post( 'http://localhost:5000/api/files/local', headers=headers,files=files)
+		# app_log.debug("Sent file to octoprint: " + r.text)
 		# print "Response: " + str(r)
 		# print "Response Text: " + str(r.text)
 		decodedData=json.loads(r.text)
@@ -361,7 +374,10 @@ def addJobToOctoprint(job):
 			return True
 		else:
 			return False
-	except:
+	except urllib2.URLError as e:
+		print e.code
+		print e.reason
+		app_log.debug("Exception sending file to octoprint: "  + str(sys.exc_info()[0]) )
 		return False
 
 def octoprintFile(job):
@@ -440,7 +456,7 @@ class HiveClient(Protocol):
 						updateBotStatus(statusCode=0,message='Job was already taken')
 						currentJobId=0
 				else:
-					updateBotStatus(statusCode=0,message='Job was already taken')
+					updateBotStatus(statusCode=0,message='Job failed to load on Octoprint')
 					currentJobId=0
 
 
@@ -500,42 +516,11 @@ class HiveClient(Protocol):
 
 class WorkerBee(object):
 	def __init__(self):
-
-		# self.pronsole=pronsole()
-		# lcd.set_color(1.0, 1.0, 0.0)
-		# lcd.clear()
-		# lcd.message('Connecting to \nprinter...')
-		# try:
-		# 	self.pronsole.connect_to_printer(printerPort, 250000)
-		# 	time.sleep(2)
-		# except:
-		# 	print 'Failed to connect to printer: ', sys.exc_info()[0]
-		# 	updateBotStatus(statusCode=3,message='Could not connect to printer')
-		# 	raise
-
-		updateBotStatus(statusCode=1,message='Waiting for printer to come online.')
-		# while not self.pronsole.online:
-		# 	print "waiting for printer to come online"
-		# 	time.sleep(5)
 		updateBotStatus(statusCode=1,message='Printer is online.')
 		if (hasLCD):
 			lcd.set_color(0.0, 1.0, 0.0)
 			lcd.clear()
 			lcd.message('Connected.')
-
-	# def printerStatus(self):
-	# 	# data={'status':str(statusCode),'message':message}
-	# 	headers={'X-Api-Key':octoprint_api_key}
-	# 	r=requests.get('http://localhost/' + 'api/job',headers=headers)
-	# 	decodedData=json.loads(r.text)
-	# 	if ( decodedData['state'] == 'Operational'):
-	# 		return 'idle'
-	# 	if ( decodedData['state'] == 'Printing'):
-	# 		return 'printing'
-	# 	if ( decodedData['state'] == 'Closed'):
-	# 		return 'offline'
-	#
-	# 	return 'other'
 
 
 
