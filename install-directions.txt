@@ -2,7 +2,7 @@ sudo apt-get update
 sudo apt-get upgrade
 sudo apt-get install subversion libjpeg8-dev imagemagick libav-tools cmake python-serial python-wxgtk2.8 python-pyglet python-tornado python-setuptools python-libxml2 python-gobject avahi-daemon libavahi-compat-libdnssd1 python-dbus python-psutil git subversion screen python-setuptools build-essential python-dev python-smbus python-pip git i2c-tools python-pip python-dev imagemagick haproxy
 sudo easy_install pip
-sudo pip install RPi.GPIO requests boto logging twisted pillow Image
+sudo pip install RPi.GPIO requests logging twisted pillow Image
 
 echo 'i2c-bcm2708' | sudo tee --append /etc/modules
 echo 'i2c-dev' | sudo tee --append /etc/modules

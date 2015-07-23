@@ -8,9 +8,6 @@ import os
 import logging
 from logging.handlers import RotatingFileHandler
 import requests, json
-import boto
-from boto.s3.key import Key
-from boto.s3.connection import S3Connection
 import logging
 from datetime import datetime
 import urllib
@@ -60,18 +57,20 @@ log_formatter = logging.Formatter('%(asctime)s %(levelname)s %(funcName)s(%(line
 my_handler = RotatingFileHandler(logFile, mode='a', maxBytes=5*1024*1024,
                                  backupCount=2, encoding=None, delay=0)
 my_handler.setFormatter(log_formatter)
+my_handler.propagate = False
 my_handler.setLevel(logging.DEBUG)
 
-app_log = logging.getLogger('root')
+app_log = logging.getLogger('workerbee')
 app_log.setLevel(logging.DEBUG)
 app_log.addHandler(my_handler)
+app_log.propagate = False
 
 ##Settings from config file
 hasLCD=Config.getboolean("Hardware","lcd")
 queue_id=ConfigSectionMap("FabHive")['queue']
 workerBeeId=ConfigSectionMap("FabHive")['workerbee']
 shouldFlipCamera=Config.getboolean('Hardware','flipcamera')
-katana_url=ConfigSectionMap("FabHive")['fabhiveurl']
+fabhive_url=ConfigSectionMap("FabHive")['fabhiveurl']
 api_key=ConfigSectionMap("FabHive")['apikey']
 octoprint_api_key=ConfigSectionMap("OctoPrint")['apikey']
 
@@ -81,8 +80,8 @@ printingStatus={}
 isPrinting=False
 octoprintAPIVersion={}
 
-requests_log = logging.getLogger("requests")
-requests_log.setLevel(logging.WARNING)
+# requests_log = logging.getLogger("requests")
+# requests_log.setLevel(logging.WARNING)
 
 ##File watching setup
 path_to_watch = "/dev/disk/by-label/"
@@ -119,8 +118,17 @@ def octoprint_on():
     try:
         response=urllib2.urlopen('http://localhost:5000',timeout=1)
         return True
-    except urllib2.URLError as err: pass
-    return False
+    except:
+	    return False
+
+def freeSpace():
+	df = subprocess.Popen(["df", "/"], stdout=subprocess.PIPE)
+	output = df.communicate()[0]
+	device, size, used, available, percent, mountpoint = output.split("\n")[1].split()
+	logging.debug("Used: " + str(percent))
+	percent=percent.replace('%','')
+	percent="." + percent
+	return percent
 
 def rebootscript():
     print "rebooting system"
@@ -159,7 +167,7 @@ def getOctoprintAPIVersion():
 	global octoprintAPIVersion
 
 	headers={'X-Api-Key':octoprint_api_key}
-	if octoprint_on:
+	if octoprint_on():
 		try:
 			r=requests.get('http://localhost:5000/' + 'api/version',headers=headers)
 			app_log.debug("R.Text: " + r.text)
@@ -176,13 +184,27 @@ def getOctoprintAPIVersion():
 		app_log.debug("OctoPrint is not up yet")
 		updateBotStatus(2,'OctoPrint is not up yet')
 
+##This function might not be needed.  Keeping it here as a placeholder for now.
+def isPrinterOnline():
+	headers={'Authorization':api_key}
+	try:
+		r=requests.get('http://localhost:5000/' + 'api/job',headers=headers)
+		if(decodedData['state']=='Offline'):
+			updateBotStatus(3,'Printer is offline for octoprint')
+			return False
+	except:
+		e = sys.exc_info()[0]
+		app_log.debug('Exception trying to determine if the printer is online: %s' % e)
+		return False
+	return True
+
 
 def printerStatus():
 	# data={'status':str(statusCode),'message':message}
 	global isPrinting
 	headers={'Authorization':api_key}
 	try:
-		r=requests.get(katana_url + 'bots/' + str(workerBeeId) ,headers=headers)
+		r=requests.get(fabhive_url + 'bots/' + str(workerBeeId) ,headers=headers)
 		bot_stats=json.loads(r.text)
 
 		headers={'X-Api-Key':octoprint_api_key}
@@ -206,8 +228,8 @@ def printerStatus():
 			return 'offline'
 		return 'other'
 	except:
-		app_log.debug("Exceptiong determining printer status")
-		app_log.debug("Response: " + r.text)
+		e = sys.exc_info()[0]
+		app_log.debug('Exceptiong determining printer status:  %s' % e)
 		app_log.debug("API Version: " + str(getOctoprintAPIVersion()))
 		if(octoprintAPIVersion['api']=='9999'):
 			app_log.debug("Bad API key for OctoPrint")
@@ -233,18 +255,41 @@ def getPrintingStatus():
 		printingStatus['timeLeft']='0'
 		printingStatus['fileName']='0'
 
+
+	r=requests.get('http://localhost:5000/' + 'api/printer',headers=headers)
+	decodedData=json.loads(r.text)
+	try:
+		if(octoprintAPIVersion['server']=='1.2.3'):
+			printingStatus['temperature']=decodedData['temps']['tool0']['actual']
+		else:
+			printingStatus['temperature']=decodedData['temps']['tool0']['actual']
+	except:
+			printingStatus['temperature']=0
 	return printingStatus
 
 
 def printerTemps():
-	headers={'X-Api-Key':octoprint_api_key}
-	r=requests.get('http://localhost:5000/' + 'api/printer',headers=headers)
-	decodedData=json.loads(r.text)
 	temps={}
-	temps['bed']=decodedData['temps']['bed']['actual']
-	temps['hotend']=decodedData['temps']['tool0']['actual']
-	app_log.debug("bed: " + str(temps['bed']))
-	app_log.debug("hotend: " + str(temps['hotend']))
+	temps['bed']=0
+	temps['hotend']=0
+
+	if octoprint_on():
+		app_log.debug("Getting printer temps")
+		headers={'X-Api-Key':octoprint_api_key}
+		r=requests.get('http://localhost:5000/' + 'api/printer',headers=headers)
+		app_log.debug("(" + r.text + ")")
+		if(r.text=="Printer is not operational" or octoprintAPIVersion['api']=='9999'):
+			return temps
+
+		decodedData=json.loads(r.text)
+		if(octoprintAPIVersion['server']=='1.2.3'):
+			temps['bed']=decodedData['temperature']['bed']['actual']
+			temps['hotend']=decodedData['temperature']['tool0']['actual']
+		else:
+			temps['bed']=decodedData['temps']['bed']['actual']
+			temps['hotend']=decodedData['temps']['tool0']['actual']
+		app_log.debug("bed: " + str(temps['bed']))
+		app_log.debug("hotend: " + str(temps['hotend']))
 	return temps
 
 def updateLCD(message,color):
@@ -275,7 +320,7 @@ def runCommand(gcode):
 		p.default(gcode)
 		data={'command':'NULL'}
 		headers={'Authorization':api_key}
-		r=requests.put(katana_url + 'bots/' + str(workerBeeId) + '/command/',data=data,headers=headers)
+		r=requests.put(fabhive_url + 'bots/' + str(workerBeeId) + '/command/',data=data,headers=headers)
 		app_log.debug("Result: ")
 		app_log.debug(r.text)
 	except:
@@ -286,7 +331,7 @@ def markJobTaken(jobID):
 	##Make sure job isn't already taken
 	try:
 		headers={'Authorization':api_key}
-		r=requests.get(katana_url + 'jobs/' + str(jobID),headers=headers)
+		r=requests.get(fabhive_url + 'jobs/' + str(jobID),headers=headers)
 	except:
 		return False
 
@@ -297,7 +342,7 @@ def markJobTaken(jobID):
 		headers={'Authorization':api_key}
 		data={'status':'1','bot':workerBeeId}
 		try:
-			r=requests.put(katana_url + 'jobs/' + str(jobID),data=data,headers=headers)
+			r=requests.put(fabhive_url + 'jobs/' + str(jobID),data=data,headers=headers)
 			decodedData=json.loads(r.text)
 			if(decodedData['error']==False):
 				app_log.debug("Mark Job Taken: " + r.text)
@@ -333,11 +378,11 @@ def markJobCompleted(jobID):
 		try:
 			if 'files' in locals():
 				app_log.debug("Posting Job Complete w/ Image: " + str(jobID))
-				r=requests.post(katana_url + 'jobs/' + str(jobID),data=data,headers=headers,files=files)
+				r=requests.post(fabhive_url + 'jobs/' + str(jobID),data=data,headers=headers,files=files)
 
 			else:
 				app_log.debug("Putting Job Complete w/out image: " + str(jobID))
-				r=requests.put(katana_url + 'jobs/' + str(jobID),data=data,headers=headers)
+				r=requests.put(fabhive_url + 'jobs/' + str(jobID),data=data,headers=headers)
 			decodedData=json.loads(r.text)
 			if(decodedData['error']==False):
 				app_log.debug("Mark Job Completed: " + r.text)
@@ -369,15 +414,15 @@ def addJobToOctoprint(job):
 		headers['X-Api-Key']=octoprint_api_key
 		request = urllib2.Request("http://localhost:5000/api/files/local", datagen, headers)
 		# Actually do the request, and get the response
-		print urllib2.urlopen(request).read()
+		postResponse=urllib2.urlopen(request).read()
+		app_log.debug("Post to octoprint response: " + str(postResponse))
 
-
-		files = {job['gcodePath']: open(job['gcodePath'].split('/')[-1], 'rb')}
-		r=requests.post( 'http://localhost:5000/api/files/local', headers=headers,files=files)
+		# files = {job['gcodePath']: open(job['gcodePath'].split('/')[-1], 'rb')}
+		# r=requests.post( 'http://localhost:5000/api/files/local', headers=headers,files=files)
 		# app_log.debug("Sent file to octoprint: " + r.text)
 		# print "Response: " + str(r)
 		# print "Response Text: " + str(r.text)
-		decodedData=json.loads(r.text)
+		decodedData=json.loads(postResponse)
 		if( decodedData['done']==True):
 			os.remove(job['gcodePath'].split('/')[-1])
 			return True
@@ -405,20 +450,27 @@ def octoprintFile(job):
 		app_log.debug("Failed to print: " + str(r) + r.text)
 		return False
 
-def updateBotStatus(statusCode=99,message=''):
+def updateBotStatus(statusCode=99,message='',temp=0,diskSpace=0):
 	app_log.debug("Updating printer status: " + message)
+	if(temp==0):
+		temps=printerTemps()
+		temp=temps['hotend']
+	if diskSpace==0:
+		diskSpace=freeSpace()
+	app_log.debug("Updating printer status temp: " + str(temp))
+	app_log.debug("Updating printer status diskSpace: " + str(diskSpace))
 	if statusCode==99:
-		data={'message':message}
+		data={'message':message,'temp':temp,'diskSpace':diskSpace}
 		headers={'Authorization':api_key}
 		try:
-			r=requests.put(katana_url + 'bots/' + str(workerBeeId) + '/message',data=data,headers=headers)
+			r=requests.put(fabhive_url + 'bots/' + str(workerBeeId) + '/message',data=data,headers=headers)
 		except:
 			app_log.debug("Could not update bot status. Network Issue.")
 	else:
-		data={'status':str(statusCode),'message':message}
+		data={'status':str(statusCode),'message':message,'temp':temp,'diskSpace':diskSpace}
 		headers={'Authorization':api_key}
 		try:
-			r=requests.put(katana_url + 'bots/' + str(workerBeeId),data=data,headers=headers)
+			r=requests.put(fabhive_url + 'bots/' + str(workerBeeId),data=data,headers=headers)
 		except:
 			app_log.debug("Could not update bot status. Network Issue.")
 		# print "response: " + r.text
@@ -492,6 +544,8 @@ class HiveClient(Protocol):
 
 			if(status=="printing complete"):
 				printStatus=getPrintingStatus()
+				diskUsed=freeSpace()
+				updateBotStatus(statusCode=99,message='Checked In',temp=printStatus['temperature'],diskSpace=diskUsed)
 				if(currentJobId>0):
 					if(printingStatus['percentComplete']==100):
 						while True:
@@ -506,7 +560,8 @@ class HiveClient(Protocol):
 			if(status=="printing"):
 				app_log.debug("I'm printing")
 				printStatus=getPrintingStatus()
-				updateBotStatus(statusCode=1,message='Printing: ' + printStatus['fileName'] + '<BR/>Percent Complete: ' + str(math.ceil(printStatus['percentComplete'])))
+				diskUsed=freeSpace()
+				updateBotStatus(statusCode=1,message='Printing: ' + printStatus['fileName'] + '<BR/>Percent Complete: ' + str(math.ceil(printStatus['percentComplete'])),temp=printStatus['temperature'],diskSpace=diskUsed)
 
 		 	if(status=="idle" and isPrinting==False):
 				app_log.debug("Requesting job")
