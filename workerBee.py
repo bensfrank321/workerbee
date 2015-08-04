@@ -79,6 +79,8 @@ currentJobId = 0
 printingStatus={}
 isPrinting=False
 octoprintAPIVersion={}
+octoprintAPIVersion['api']='9999'
+octoprintAPIVersion['server']='9999'
 
 # requests_log = logging.getLogger("requests")
 # requests_log.setLevel(logging.WARNING)
@@ -282,7 +284,7 @@ def printerTemps():
 			return temps
 
 		decodedData=json.loads(r.text)
-		if(octoprintAPIVersion['server']=='1.2.3'):
+		if(octoprintAPIVersion['server']=='1.2.3' or octoprintAPIVersion['server']=='1.2.4'):
 			temps['bed']=decodedData['temperature']['bed']['actual']
 			temps['hotend']=decodedData['temperature']['tool0']['actual']
 		else:
