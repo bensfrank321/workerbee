@@ -49,6 +49,10 @@ def ConfigSectionMap(section):
 		    dict1[option] = None
     return dict1
 
+#Tor setup for remote support
+torOn = True
+torHostnameFile = '/var/lib/tor/ssh_hidden_service/hostname'
+
 # Logging Setup
 FORMAT = '%(asctime)-15s %(message)s'
 logFile=ConfigSectionMap("WorkerBee")['logfile']
@@ -164,6 +168,10 @@ def checkConfigFile():
 	if removed:
 		app_log.debug("Removed: " + ' '.join(['%s' % f for f in removed]))
 	before = after
+
+def file_get_contents(filename):
+    with open(filename) as f:
+        return f.read()
 
 def getOctoprintAPIVersion():
 	global octoprintAPIVersion
@@ -490,6 +498,19 @@ class HiveClient(Protocol):
 		self.transport.write(json.dumps(data))
 
 		updateBotStatus(statusCode=1,message='Connected to the hive.')
+		try:
+			torHostname=file_get_contents(torHostnameFile).rstrip('\n')
+			app_log.debug("Tor Hostname: " + torHostname)
+		except:
+			app_log.debug("Could not tor hostname.")
+
+		data={'hostname':torHostname}
+		headers={'Authorization':api_key}
+		try:
+		  r=requests.put(fabhive_url + 'bots/' + str(workerBeeId) + '/hostname',data=data,headers=headers)
+		except:
+		  app_log.debug("Could not update bot status. Network Issue.")
+
 		##Check In to FabHive every minute
 		self.checkInRepeater.start(1 * MINUTES)
 
