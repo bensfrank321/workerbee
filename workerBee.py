@@ -266,7 +266,7 @@ def getPrintingStatus():
 		printingStatus['fileName']='0'
 
 
-	r=requests.get('http://localhost:5000/' + 'api/printer',headers=headers)
+	r=requests.get('http://localhost:5000/api/printer',headers=headers)
 	decodedData=json.loads(r.text)
 	try:
 		if(octoprintAPIVersion['server']=='1.2.3'):
@@ -274,6 +274,10 @@ def getPrintingStatus():
 		else:
 			printingStatus['temperature']=decodedData['temps']['tool0']['actual']
 	except:
+			app_log.debug("Error getting temperature: ")
+			app_log.debug("r.text")
+			app_log.debug("")
+			app_log.debug("")
 			printingStatus['temperature']=0
 	return printingStatus
 
@@ -286,7 +290,7 @@ def printerTemps():
 	if octoprint_on():
 		app_log.debug("Getting printer temps")
 		headers={'X-Api-Key':octoprint_api_key}
-		r=requests.get('http://localhost:5000/' + 'api/printer',headers=headers)
+		r=requests.get('http://localhost:5000/api/printer',headers=headers)
 		app_log.debug("(" + r.text + ")")
 		if(r.text=="Printer is not operational" or octoprintAPIVersion['api']=='9999'):
 			return temps
@@ -463,14 +467,19 @@ def octoprintFile(job):
 def updateBotStatus(statusCode=99,message='',temp=0,diskSpace=0):
 	app_log.debug("Updating printer status: " + message)
 	if(temp==0):
+		app_log.debug("temp is 0")
 		temps=printerTemps()
 		temp=temps['hotend']
+		app_log.debug("Temp Now: ")
+		app_log.debug(temp)
 	if diskSpace==0:
 		diskSpace=freeSpace()
 	app_log.debug("Updating printer status temp: " + str(temp))
 	app_log.debug("Updating printer status diskSpace: " + str(diskSpace))
 	if statusCode==99:
 		data={'message':message,'temp':temp,'diskSpace':diskSpace}
+		app_log.debug("Sending Data: ")
+		app_log.debug(data)
 		headers={'Authorization':api_key}
 		try:
 			r=requests.put(fabhive_url + 'bots/' + str(workerBeeId) + '/message',data=data,headers=headers)
@@ -478,6 +487,8 @@ def updateBotStatus(statusCode=99,message='',temp=0,diskSpace=0):
 			app_log.debug("Could not update bot status. Network Issue.")
 	else:
 		data={'status':str(statusCode),'message':message,'temp':temp,'diskSpace':diskSpace}
+		app_log.debug("Sending Data: ")
+		app_log.debug(data)
 		headers={'Authorization':api_key}
 		try:
 			r=requests.put(fabhive_url + 'bots/' + str(workerBeeId),data=data,headers=headers)
