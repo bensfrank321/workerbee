@@ -26,6 +26,7 @@ from PIL import Image
 from PIL import ImageFile
 import os.path
 import inspect, shutil
+import re
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
@@ -35,6 +36,13 @@ if(os.path.isfile('config.ini')):
 	Config.read("config.ini")
 else:
 	Config.read("config-sample.ini")
+
+
+#Function used to compare version numbers
+def vercmp(version1, version2):
+    def normalize(v):
+        return [int(x) for x in re.sub(r'(\.0+)*$','', v).split(".")]
+    return cmp(normalize(version1), normalize(version2))
 
 def ConfigSectionMap(section):
     dict1 = {}
@@ -216,10 +224,14 @@ def printerStatus():
 	try:
 		r=requests.get(fabhive_url + 'bots/' + str(workerBeeId) ,headers=headers)
 		bot_stats=json.loads(r.text)
+		# app_log.debug("bot url: " + fabhive_url + 'bots/' + str(workerBeeId))
+		# app_log.debug("bot status: " + r.text)
 
 		headers={'X-Api-Key':octoprint_api_key}
 		r=requests.get('http://localhost:5000/' + 'api/job',headers=headers)
+		# app_log.debug("job status: " + r.text)
 		decodedData=json.loads(r.text)
+
 		if(decodedData['state']=='Offline'):
 			updateBotStatus(3,'Printer is offline for octoprint')
 			return 'offline'
@@ -269,7 +281,7 @@ def getPrintingStatus():
 	r=requests.get('http://localhost:5000/api/printer',headers=headers)
 	decodedData=json.loads(r.text)
 	try:
-		if(octoprintAPIVersion['server']=='1.2.3'):
+		if(vercmp(octoprintAPIVersion['server'],'1.2.2')):
 			printingStatus['temperature']=decodedData['temps']['tool0']['actual']
 		else:
 			printingStatus['temperature']=decodedData['temps']['tool0']['actual']
@@ -296,7 +308,7 @@ def printerTemps():
 			return temps
 
 		decodedData=json.loads(r.text)
-		if(octoprintAPIVersion['server']=='1.2.3' or octoprintAPIVersion['server']=='1.2.4'):
+		if(vercmp(octoprintAPIVersion['server'],'1.2.2')):
 			temps['bed']=decodedData['temperature']['bed']['actual']
 			temps['hotend']=decodedData['temperature']['tool0']['actual']
 		else:
