@@ -27,6 +27,9 @@ from PIL import ImageFile
 import os.path
 import inspect, shutil
 import re
+from time import sleep
+import RPi.GPIO as GPIO
+
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
@@ -40,9 +43,10 @@ else:
 
 #Function used to compare version numbers
 def vercmp(version1, version2):
-    def normalize(v):
-        return [int(x) for x in re.sub(r'(\.0+)*$','', v).split(".")]
-    return cmp(normalize(version1), normalize(version2))
+	return 1
+	def normalize(v):
+		return [int(x) for x in re.sub(r'(\.0+)*$','', v).split(".")]
+    #return cmp(normalize(version1), normalize(version2))
 
 def ConfigSectionMap(section):
     dict1 = {}
@@ -79,6 +83,7 @@ app_log.propagate = False
 
 ##Settings from config file
 hasLCD=Config.getboolean("Hardware","lcd")
+hasFHBoard=Config.getboolean("Hardware","fhBoard")
 queue_id=ConfigSectionMap("FabHive")['queue']
 workerBeeId=ConfigSectionMap("FabHive")['workerbee']
 shouldFlipCamera=Config.getboolean('Hardware','flipcamera')
@@ -94,8 +99,43 @@ octoprintAPIVersion={}
 octoprintAPIVersion['api']='9999'
 octoprintAPIVersion['server']='9999'
 
-# requests_log = logging.getLogger("requests")
-# requests_log.setLevel(logging.WARNING)
+redLEDPin=17
+blueLEDPin=18
+readyButtonPin=6
+cancelButtonPin=5
+
+##Hardware Setup
+if hasFHBoard:
+	GPIO.setmode(GPIO.BCM)
+	##Setup LEDs
+	GPIO.setup(redLEDPin,GPIO.OUT)
+	GPIO.output(redLEDPin,True)
+	GPIO.setup(blueLEDPin,GPIO.OUT)
+	GPIO.output(blueLEDPin,True)
+	sleep(1)
+	GPIO.output(redLEDPin,False)
+	GPIO.output(blueLEDPin,False)
+
+	##Setup Buttons
+	GPIO.setup(cancelButtonPin, GPIO.IN) #1 by default, 0 when pressed
+	GPIO.setup(readyButtonPin, GPIO.IN)
+
+def turnOnRed():
+	if hasFHBoard:
+		GPIO.output(redLEDPin,True)
+
+def turnOffRed():
+	if hasFHBoard:
+		GPIO.output(redLEDPin,False)
+
+def buttonChecker():
+	if not GPIO.input(cancelButtonPin):
+		app_log.debug("Cancel button pressed")
+		cancelPrint()
+	if not GPIO.input(readyButtonPin):
+		app_log.debug("Ready button pressed")
+		readyButtonPressed()
+
 
 ##File watching setup
 path_to_watch = "/dev/disk/by-label/"
@@ -303,7 +343,7 @@ def printerTemps():
 		app_log.debug("Getting printer temps")
 		headers={'X-Api-Key':octoprint_api_key}
 		r=requests.get('http://localhost:5000/api/printer',headers=headers)
-		app_log.debug("(" + r.text + ")")
+		# app_log.debug("(" + r.text + ")")
 		if(r.text=="Printer is not operational" or octoprintAPIVersion['api']=='9999'):
 			return temps
 
@@ -316,6 +356,11 @@ def printerTemps():
 			temps['hotend']=decodedData['temps']['tool0']['actual']
 		app_log.debug("bed: " + str(temps['bed']))
 		app_log.debug("hotend: " + str(temps['hotend']))
+
+		if(temps['hotend']>50):
+			turnOnRed()
+		else:
+			turnOffRed()
 	return temps
 
 def updateLCD(message,color):
@@ -434,8 +479,6 @@ def addJobToOctoprint(job):
 
 		app_log.debug("Sending file to octoprint: " + job['gcodePath'])
 
-
-
 		datagen, headers = multipart_encode({"file": open(job['gcodePath'].split('/')[-1], "rb")})
 		headers['X-Api-Key']=octoprint_api_key
 		request = urllib2.Request("http://localhost:5000/api/files/local", datagen, headers)
@@ -460,6 +503,19 @@ def addJobToOctoprint(job):
 		app_log.debug("Exception sending file to octoprint: "  + str(sys.exc_info()[0]) )
 		return False
 
+def cancelPrint():
+	app_log.debug("Getting printer temps")
+	headers={'X-Api-Key':octoprint_api_key,'Content-Type':'application/json'}
+	data={'command':'cancel'}
+	r=requests.post('http://localhost:5000/api/job',headers=headers,data=json.dumps(data))
+	app_log.debug("(" + r.text + ")")
+	app_log.debug("Homing Axis")
+	headers={'X-Api-Key':octoprint_api_key,'Content-Type':'application/json'}
+	data={'command':'home', "axes":["x","y"]}
+	r=requests.post('http://localhost:5000/api/printer/printhead',headers=headers,data=json.dumps(data))
+	app_log.debug("(" + r.text + ")")
+
+
 def octoprintFile(job):
 	fileName=job['gcodePath'].split('/')[-1]
 	headers={'X-Api-Key':octoprint_api_key,'Content-Type':'application/json'}
@@ -475,6 +531,9 @@ def octoprintFile(job):
 	else:
 		app_log.debug("Failed to print: " + str(r) + r.text)
 		return False
+
+def readyButtonPressed():
+	updateBotStatus(statusCode=0,message='Ready Button Pressed')
 
 def updateBotStatus(statusCode=99,message='',temp=0,diskSpace=0):
 	app_log.debug("Updating printer status: " + message)
@@ -514,7 +573,6 @@ class HiveClient(Protocol):
 		self.factory = factory
 		self.hasConnected=False
 		self.checkInRepeater = LoopingCall(self.checkBotIn)
-		self.configFileRepeater=LoopingCall(checkConfigFile)
 
 	def connectionMade(self):
 		data={'type':'connect','bot':workerBeeId}
@@ -537,8 +595,6 @@ class HiveClient(Protocol):
 		##Check In to FabHive every minute
 		self.checkInRepeater.start(1 * MINUTES)
 
-		##Check for new config file every 30 seconds
-		self.configFileRepeater.start(1 * .5 * MINUTES,now=True)
 		self.hasConnected=True
 
 	def dataReceived(self, data):
@@ -638,9 +694,19 @@ class WorkerBee(object):
 class HiveFactory(ReconnectingClientFactory):
 	def __init__(self):
 		self.protocol=HiveClient(self)
-		self.checkTempRepeater = LoopingCall(self.checkPrinterTemp)
 		self.workerBee=WorkerBee()
-		self.checkTempRepeater.start(1*15)
+
+		##Check temp every 15 seconds for LED
+		self.checkTempRepeater = LoopingCall(self.checkPrinterTemp)
+		self.checkTempRepeater.start(1*15,True)
+
+		##Check for new config file every 30 seconds
+		self.configFileRepeater=LoopingCall(checkConfigFile)
+		self.configFileRepeater.start(1*30,True)
+
+		##Check cancel and ready buttons every 3 seconds
+		self.buttonCheckRepeater=LoopingCall(buttonChecker)
+		self.buttonCheckRepeater.start(1*3,True)
 
 	def startedConnecting(self, connector):
 		app_log.debug('Started to connect.')
@@ -664,6 +730,12 @@ class HiveFactory(ReconnectingClientFactory):
 
 	def checkPrinterTemp(self):
 		# extruderTemp=self.workerBee.pronsole.status.extruder_temp
+		if hasFHBoard:
+			temps=printerTemps()
+			if(temps['hotend']>40):
+				turnOnRed()
+			else:
+				turnOffRed()
 		if (hasLCD):
 			temps=printerTemps()
 			if(temps['hotend']>40):
