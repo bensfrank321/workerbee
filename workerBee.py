@@ -128,6 +128,14 @@ def turnOffRed():
 	if hasFHBoard:
 		GPIO.output(redLEDPin,False)
 
+def turnOnBlue():
+	if hasFHBoard:
+		GPIO.output(blueLEDPin,True)
+
+def turnOffBlue():
+	if hasFHBoard:
+		GPIO.output(blueLEDPin,False)
+
 def buttonChecker():
 	if not GPIO.input(cancelButtonPin):
 		app_log.debug("Cancel button pressed")
@@ -504,6 +512,7 @@ def addJobToOctoprint(job):
 		return False
 
 def cancelPrint():
+	turnOnBlue()
 	app_log.debug("Getting printer temps")
 	headers={'X-Api-Key':octoprint_api_key,'Content-Type':'application/json'}
 	data={'command':'cancel'}
@@ -514,6 +523,9 @@ def cancelPrint():
 	data={'command':'home', "axes":["x","y"]}
 	r=requests.post('http://localhost:5000/api/printer/printhead',headers=headers,data=json.dumps(data))
 	app_log.debug("(" + r.text + ")")
+	updateBotStatus(statusCode=1,message='Cancel Button Pressed')
+	sleep(2)
+	turnOffBlue()
 
 
 def octoprintFile(job):
@@ -533,7 +545,10 @@ def octoprintFile(job):
 		return False
 
 def readyButtonPressed():
+	turnOnBlue()
 	updateBotStatus(statusCode=0,message='Ready Button Pressed')
+	sleep(2)
+	turnOffBlue()
 
 def updateBotStatus(statusCode=99,message='',temp=0,diskSpace=0):
 	app_log.debug("Updating printer status: " + message)
@@ -705,8 +720,9 @@ class HiveFactory(ReconnectingClientFactory):
 		self.configFileRepeater.start(1*30,True)
 
 		##Check cancel and ready buttons every 3 seconds
-		self.buttonCheckRepeater=LoopingCall(buttonChecker)
-		self.buttonCheckRepeater.start(1*3,True)
+		if hasFHBoard:
+			self.buttonCheckRepeater=LoopingCall(buttonChecker)
+			self.buttonCheckRepeater.start(1*3,True)
 
 	def startedConnecting(self, connector):
 		app_log.debug('Started to connect.')
