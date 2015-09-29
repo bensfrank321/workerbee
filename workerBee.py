@@ -333,10 +333,7 @@ def getPrintingStatus():
 		else:
 			printingStatus['temperature']=decodedData['temps']['tool0']['actual']
 	except:
-			app_log.debug("Error getting temperature: ")
-			app_log.debug("r.text")
-			app_log.debug("")
-			app_log.debug("")
+			app_log.debug("getPrintingStatus: Error getting temperature: ")
 			printingStatus['temperature']=0
 	return printingStatus
 
@@ -348,26 +345,29 @@ def printerTemps():
 
 	if octoprint_on():
 		app_log.debug("Getting printer temps")
-		headers={'X-Api-Key':octoprint_api_key}
-		r=requests.get('http://localhost:5000/api/printer',headers=headers)
-		# app_log.debug("(" + r.text + ")")
-		if(r.text=="Printer is not operational" or octoprintAPIVersion['api']=='9999'):
-			return temps
+		try:
+			headers={'X-Api-Key':octoprint_api_key}
+			r=requests.get('http://localhost:5000/api/printer',headers=headers)
+			# app_log.debug("(" + r.text + ")")
+			if(r.text=="Printer is not operational" or octoprintAPIVersion['api']=='9999'):
+				return temps
 
-		decodedData=json.loads(r.text)
-		if(vercmp(octoprintAPIVersion['server'],'1.2.2')):
-			temps['bed']=decodedData['temperature']['bed']['actual']
-			temps['hotend']=decodedData['temperature']['tool0']['actual']
-		else:
-			temps['bed']=decodedData['temps']['bed']['actual']
-			temps['hotend']=decodedData['temps']['tool0']['actual']
-		app_log.debug("bed: " + str(temps['bed']))
-		app_log.debug("hotend: " + str(temps['hotend']))
+			decodedData=json.loads(r.text)
+			if(vercmp(octoprintAPIVersion['server'],'1.2.2')):
+				temps['bed']=decodedData['temperature']['bed']['actual']
+				temps['hotend']=decodedData['temperature']['tool0']['actual']
+			else:
+				temps['bed']=decodedData['temps']['bed']['actual']
+				temps['hotend']=decodedData['temps']['tool0']['actual']
+			app_log.debug("bed: " + str(temps['bed']))
+			app_log.debug("hotend: " + str(temps['hotend']))
 
-		if(temps['hotend']>50):
-			turnOnRed()
-		else:
-			turnOffRed()
+			if(temps['hotend']>50):
+				turnOnRed()
+			else:
+				turnOffRed()
+		except:
+			app_log.debug("printerTemps: Error getting temperature. ")
 	return temps
 
 def updateLCD(message,color):
