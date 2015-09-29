@@ -34,7 +34,7 @@ import RPi.GPIO as GPIO
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 #Config File Preparation
-Config = ConfigParser.ConfigParser()
+Config = ConfigParser.ConfigParser({'fhboard':'False'})
 if(os.path.isfile('config.ini')):
 	Config.read("config.ini")
 else:
