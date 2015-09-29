@@ -43,10 +43,9 @@ else:
 
 #Function used to compare version numbers
 def vercmp(version1, version2):
-	return 1
 	def normalize(v):
 		return [int(x) for x in re.sub(r'(\.0+)*$','', v).split(".")]
-    #return cmp(normalize(version1), normalize(version2))
+	return cmp(normalize(version1), normalize(version2))
 
 def ConfigSectionMap(section):
     dict1 = {}
@@ -606,6 +605,23 @@ class HiveClient(Protocol):
 		  r=requests.put(fabhive_url + 'bots/' + str(workerBeeId) + '/hostname',data=data,headers=headers)
 		except:
 		  app_log.debug("Could not update bot status. Network Issue.")
+
+		##Report IP Address
+		try:
+			s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+			s.connect(("8.8.8.8",80))
+			address=s.getsockname()[0]
+			app_log.debug("IP Address: " + address)
+			s.close()
+			data={'address':address}
+			headers={'Authorization':api_key}
+			try:
+			  r=requests.put(fabhive_url + 'bots/' + str(workerBeeId) + '/address',data=data,headers=headers)
+			except:
+			  app_log.debug("Unable to report Address")
+
+		except:
+			app_log.debug("Unable to get Address")
 
 		##Check In to FabHive every minute
 		self.checkInRepeater.start(1 * MINUTES)
