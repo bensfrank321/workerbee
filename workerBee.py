@@ -301,8 +301,8 @@ def printerStatus():
 		app_log.debug('Exceptiong determining printer status:  %s' % e)
 		app_log.debug("API Version: " + str(getOctoprintAPIVersion()))
 		if(octoprintAPIVersion['api']=='9999'):
-			app_log.debug("Bad API key for OctoPrint")
-			updateBotStatus(3,'Bad API key for OctoPrint')
+			app_log.debug("Unable to get API Version")
+			updateBotStatus(2,'Unable to get API for OctoPrint')
 			return 'offline'
 		else:
 			return 'other'
