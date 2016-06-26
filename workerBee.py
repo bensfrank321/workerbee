@@ -8,9 +8,6 @@ import os
 import logging
 from logging.handlers import RotatingFileHandler
 import requests, json
-import boto
-from boto.s3.key import Key
-from boto.s3.connection import S3Connection
 import logging
 from datetime import datetime
 import urllib
@@ -22,19 +19,33 @@ from twisted.internet import reactor
 from twisted.internet.task import LoopingCall
 import math
 import urllib
+from poster.encode import multipart_encode
+from poster.streaminghttp import register_openers
+import urllib2
 from PIL import Image
 from PIL import ImageFile
 import os.path
 import inspect, shutil
+import re
+from time import sleep
+import RPi.GPIO as GPIO
+
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 #Config File Preparation
-Config = ConfigParser.ConfigParser()
+Config = ConfigParser.ConfigParser({'fhboard':'False'})
 if(os.path.isfile('config.ini')):
 	Config.read("config.ini")
 else:
 	Config.read("config-sample.ini")
+
+
+#Function used to compare version numbers
+def vercmp(version1, version2):
+	def normalize(v):
+		return [int(x) for x in re.sub(r'(\.0+)*$','', v).split(".")]
+	return cmp(normalize(version1), normalize(version2))
 
 def ConfigSectionMap(section):
     dict1 = {}
@@ -49,6 +60,10 @@ def ConfigSectionMap(section):
 		    dict1[option] = None
     return dict1
 
+#Tor setup for remote support
+torOn = True
+torHostnameFile = '/var/lib/tor/ssh_hidden_service/hostname'
+
 # Logging Setup
 FORMAT = '%(asctime)-15s %(message)s'
 logFile=ConfigSectionMap("WorkerBee")['logfile']
@@ -57,18 +72,21 @@ log_formatter = logging.Formatter('%(asctime)s %(levelname)s %(funcName)s(%(line
 my_handler = RotatingFileHandler(logFile, mode='a', maxBytes=5*1024*1024,
                                  backupCount=2, encoding=None, delay=0)
 my_handler.setFormatter(log_formatter)
+my_handler.propagate = False
 my_handler.setLevel(logging.DEBUG)
 
-app_log = logging.getLogger('root')
+app_log = logging.getLogger('workerbee')
 app_log.setLevel(logging.DEBUG)
 app_log.addHandler(my_handler)
+app_log.propagate = False
 
 ##Settings from config file
 hasLCD=Config.getboolean("Hardware","lcd")
+hasFHBoard=Config.getboolean("Hardware","fhBoard")
 queue_id=ConfigSectionMap("FabHive")['queue']
 workerBeeId=ConfigSectionMap("FabHive")['workerbee']
 shouldFlipCamera=Config.getboolean('Hardware','flipcamera')
-katana_url=ConfigSectionMap("FabHive")['fabhiveurl']
+fabhive_url=ConfigSectionMap("FabHive")['fabhiveurl']
 api_key=ConfigSectionMap("FabHive")['apikey']
 octoprint_api_key=ConfigSectionMap("OctoPrint")['apikey']
 
@@ -76,16 +94,64 @@ octoprint_api_key=ConfigSectionMap("OctoPrint")['apikey']
 currentJobId = 0
 printingStatus={}
 isPrinting=False
+octoprintAPIVersion={}
+octoprintAPIVersion['api']='9999'
+octoprintAPIVersion['server']='9999'
 
-requests_log = logging.getLogger("requests")
-requests_log.setLevel(logging.WARNING)
+redLEDPin=17
+blueLEDPin=18
+readyButtonPin=6
+cancelButtonPin=5
+
+##Hardware Setup
+if hasFHBoard:
+	GPIO.setmode(GPIO.BCM)
+	##Setup LEDs
+	GPIO.setup(redLEDPin,GPIO.OUT)
+	GPIO.output(redLEDPin,True)
+	GPIO.setup(blueLEDPin,GPIO.OUT)
+	GPIO.output(blueLEDPin,True)
+	sleep(1)
+	GPIO.output(redLEDPin,False)
+	GPIO.output(blueLEDPin,False)
+
+	##Setup Buttons
+	GPIO.setup(cancelButtonPin, GPIO.IN) #1 by default, 0 when pressed
+	GPIO.setup(readyButtonPin, GPIO.IN)
+
+def turnOnRed():
+	if hasFHBoard:
+		GPIO.output(redLEDPin,True)
+
+def turnOffRed():
+	if hasFHBoard:
+		GPIO.output(redLEDPin,False)
+
+def turnOnBlue():
+	if hasFHBoard:
+		GPIO.output(blueLEDPin,True)
+
+def turnOffBlue():
+	if hasFHBoard:
+		GPIO.output(blueLEDPin,False)
+
+def buttonChecker():
+	if not GPIO.input(cancelButtonPin):
+		app_log.debug("Cancel button pressed")
+		cancelPrint()
+	if not GPIO.input(readyButtonPin):
+		app_log.debug("Ready button pressed")
+		readyButtonPressed()
+
 
 ##File watching setup
 path_to_watch = "/dev/disk/by-label/"
 path_mount_base = "/tmp/fabhive"
 filename_to_look_for="/config.ini"
+before = dict ([(f, None) for f in os.listdir (path_to_watch)])
 
-
+##Used for uploading files
+register_openers()
 
 if (hasLCD):
 	import Adafruit_CharLCD as LCD
@@ -100,13 +166,30 @@ if (hasLCD):
 
 MINUTES = 60.0
 
+# script filename (usually with path)
+# print inspect.getfile(inspect.currentframe())
+# script directory
+script_directory=os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 
-print inspect.getfile(inspect.currentframe()) # script filename (usually with path)
-script_directory=os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe()))) # script directory
 
-print script_directory
+# print script_directory
+print "WorkerBee started."
 
-before = dict ([(f, None) for f in os.listdir (path_to_watch)])
+def octoprint_on():
+    try:
+        response=urllib2.urlopen('http://localhost:5000',timeout=1)
+        return True
+    except:
+	    return False
+
+def freeSpace():
+	df = subprocess.Popen(["df", "/"], stdout=subprocess.PIPE)
+	output = df.communicate()[0]
+	device, size, used, available, percent, mountpoint = output.split("\n")[1].split()
+	logging.debug("Used: " + str(percent))
+	percent=percent.replace('%','')
+	percent="." + percent
+	return percent
 
 def rebootscript():
     print "rebooting system"
@@ -114,6 +197,7 @@ def rebootscript():
     subprocess.call(command, shell = True)
 
 def checkConfigFile():
+	app_log.debug("Checking for new config file")
 	global before
 	after = dict ([(f, None) for f in os.listdir (path_to_watch)])
 	added = [f for f in after if not f in before]
@@ -121,34 +205,83 @@ def checkConfigFile():
 	if added:
 		i=0
 		for f in added:
-			print "Added: ", ", ", f
+			app_log.debug("New Device Found: " + f)
 			if not (os.path.isdir(path_mount_base + str(i))):
 				os.mkdir(path_mount_base + str(i))
 			subprocess.check_call(["mount",path_to_watch + f,path_mount_base + str(i)])
 			if(os.path.isfile(path_mount_base+str(i)+filename_to_look_for)):
-				print "Found config file"
-				print "Copying config file"
+				app_log.debug("Found new config file")
 				shutil.copyfile(path_mount_base+str(i)+filename_to_look_for,script_directory+filename_to_look_for);
 				rebootscript()
 			else:
-				print "No config file on drive, unmounting"
+				app_log.debug("No config file on drive, unmounting")
 				subprocess.check_call(["umount",path_mount_base + str(i)])
 			i=i+1
+	else:
+		app_log.debug("No new devices")
 
-	if removed: print "Removed: ", ", ".join (removed)
+	if removed:
+		app_log.debug("Removed: " + ' '.join(['%s' % f for f in removed]))
 	before = after
+
+def file_get_contents(filename):
+    with open(filename) as f:
+        return f.read()
+
+def getOctoprintAPIVersion():
+	global octoprintAPIVersion
+
+	headers={'X-Api-Key':octoprint_api_key}
+	if octoprint_on():
+		try:
+			r=requests.get('http://localhost:5000/' + 'api/version',headers=headers)
+			app_log.debug("R.Text: " + r.text)
+			decodedData=json.loads(r.text)
+
+			octoprintAPIVersion['api']=decodedData['api']
+			octoprintAPIVersion['server']=decodedData['server']
+			app_log.debug("Octoprint API Versions: API(" + octoprintAPIVersion['api'] + ") Server("+octoprintAPIVersion['server']+")")
+		except:
+			app_log.debug("Exceptiong determining API version" + str(sys.exc_info()[0]))
+			app_log.debug("API Key used: " + octoprint_api_key)
+			octoprintAPIVersion['api']='9999'
+	else:
+		app_log.debug("OctoPrint is not up yet")
+		updateBotStatus(2,'OctoPrint is not up yet')
+
+##This function might not be needed.  Keeping it here as a placeholder for now.
+def isPrinterOnline():
+	headers={'Authorization':api_key}
+	try:
+		r=requests.get('http://localhost:5000/' + 'api/job',headers=headers)
+		if(decodedData['state']=='Offline'):
+			updateBotStatus(3,'Printer is offline for octoprint')
+			return False
+	except:
+		e = sys.exc_info()[0]
+		app_log.debug('Exception trying to determine if the printer is online: %s' % e)
+		return False
+	return True
+
 
 def printerStatus():
 	# data={'status':str(statusCode),'message':message}
 	global isPrinting
 	headers={'Authorization':api_key}
 	try:
-		r=requests.get(katana_url + 'bots/' + str(workerBeeId) ,headers=headers)
+		r=requests.get(fabhive_url + 'bots/' + str(workerBeeId) ,headers=headers)
 		bot_stats=json.loads(r.text)
+		# app_log.debug("bot url: " + fabhive_url + 'bots/' + str(workerBeeId))
+		# app_log.debug("bot status: " + r.text)
 
 		headers={'X-Api-Key':octoprint_api_key}
 		r=requests.get('http://localhost:5000/' + 'api/job',headers=headers)
+		# app_log.debug("job status: " + r.text)
 		decodedData=json.loads(r.text)
+
+		if(decodedData['state']=='Offline'):
+			updateBotStatus(3,'Printer is offline for octoprint')
+			return 'offline'
 		if ( decodedData['state'] == 'Operational' and bot_stats['status']==0):
 			isPrinting=False
 			return 'idle'
@@ -164,7 +297,15 @@ def printerStatus():
 			return 'offline'
 		return 'other'
 	except:
-		return 'other'
+		e = sys.exc_info()[0]
+		app_log.debug('Exceptiong determining printer status:  %s' % e)
+		app_log.debug("API Version: " + str(getOctoprintAPIVersion()))
+		if(octoprintAPIVersion['api']=='9999'):
+			app_log.debug("Unable to get API Version")
+			updateBotStatus(2,'Unable to get API for OctoPrint')
+			return 'offline'
+		else:
+			return 'other'
 
 
 def getPrintingStatus():
@@ -183,18 +324,50 @@ def getPrintingStatus():
 		printingStatus['timeLeft']='0'
 		printingStatus['fileName']='0'
 
+
+	r=requests.get('http://localhost:5000/api/printer',headers=headers)
+	decodedData=json.loads(r.text)
+	try:
+		if(vercmp(octoprintAPIVersion['server'],'1.2.2')):
+			printingStatus['temperature']=decodedData['temps']['tool0']['actual']
+		else:
+			printingStatus['temperature']=decodedData['temps']['tool0']['actual']
+	except:
+			app_log.debug("getPrintingStatus: Error getting temperature: ")
+			printingStatus['temperature']=0
 	return printingStatus
 
 
 def printerTemps():
-	headers={'X-Api-Key':octoprint_api_key}
-	r=requests.get('http://localhost:5000/' + 'api/printer',headers=headers)
-	decodedData=json.loads(r.text)
 	temps={}
-	temps['bed']=decodedData['temps']['bed']['actual']
-	temps['hotend']=decodedData['temps']['tool0']['actual']
-	app_log.debug("bed: " + str(temps['bed']))
-	app_log.debug("hotend: " + str(temps['hotend']))
+	temps['bed']=0
+	temps['hotend']=0
+
+	if octoprint_on():
+		app_log.debug("Getting printer temps")
+		try:
+			headers={'X-Api-Key':octoprint_api_key}
+			r=requests.get('http://localhost:5000/api/printer',headers=headers)
+			# app_log.debug("(" + r.text + ")")
+			if(r.text=="Printer is not operational" or octoprintAPIVersion['api']=='9999'):
+				return temps
+
+			decodedData=json.loads(r.text)
+			if(vercmp(octoprintAPIVersion['server'],'1.2.2')):
+				temps['bed']=decodedData['temperature']['bed']['actual']
+				temps['hotend']=decodedData['temperature']['tool0']['actual']
+			else:
+				temps['bed']=decodedData['temps']['bed']['actual']
+				temps['hotend']=decodedData['temps']['tool0']['actual']
+			app_log.debug("bed: " + str(temps['bed']))
+			app_log.debug("hotend: " + str(temps['hotend']))
+
+			if(temps['hotend']>50):
+				turnOnRed()
+			else:
+				turnOffRed()
+		except:
+			app_log.debug("printerTemps: Error getting temperature. ")
 	return temps
 
 def updateLCD(message,color):
@@ -225,7 +398,7 @@ def runCommand(gcode):
 		p.default(gcode)
 		data={'command':'NULL'}
 		headers={'Authorization':api_key}
-		r=requests.put(katana_url + 'bots/' + str(workerBeeId) + '/command/',data=data,headers=headers)
+		r=requests.put(fabhive_url + 'bots/' + str(workerBeeId) + '/command/',data=data,headers=headers)
 		app_log.debug("Result: ")
 		app_log.debug(r.text)
 	except:
@@ -236,7 +409,7 @@ def markJobTaken(jobID):
 	##Make sure job isn't already taken
 	try:
 		headers={'Authorization':api_key}
-		r=requests.get(katana_url + 'jobs/' + str(jobID),headers=headers)
+		r=requests.get(fabhive_url + 'jobs/' + str(jobID),headers=headers)
 	except:
 		return False
 
@@ -247,7 +420,7 @@ def markJobTaken(jobID):
 		headers={'Authorization':api_key}
 		data={'status':'1','bot':workerBeeId}
 		try:
-			r=requests.put(katana_url + 'jobs/' + str(jobID),data=data,headers=headers)
+			r=requests.put(fabhive_url + 'jobs/' + str(jobID),data=data,headers=headers)
 			decodedData=json.loads(r.text)
 			if(decodedData['error']==False):
 				app_log.debug("Mark Job Taken: " + r.text)
@@ -283,11 +456,11 @@ def markJobCompleted(jobID):
 		try:
 			if 'files' in locals():
 				app_log.debug("Posting Job Complete w/ Image: " + str(jobID))
-				r=requests.post(katana_url + 'jobs/' + str(jobID),data=data,headers=headers,files=files)
+				r=requests.post(fabhive_url + 'jobs/' + str(jobID),data=data,headers=headers,files=files)
 
 			else:
 				app_log.debug("Putting Job Complete w/out image: " + str(jobID))
-				r=requests.put(katana_url + 'jobs/' + str(jobID),data=data,headers=headers)
+				r=requests.put(fabhive_url + 'jobs/' + str(jobID),data=data,headers=headers)
 			decodedData=json.loads(r.text)
 			if(decodedData['error']==False):
 				app_log.debug("Mark Job Completed: " + r.text)
@@ -313,19 +486,46 @@ def addJobToOctoprint(job):
 
 		app_log.debug("Sending file to octoprint: " + job['gcodePath'])
 
-		headers={'X-Api-Key':octoprint_api_key}
-		files = {'file': open(job['gcodePath'].split('/')[-1], 'r')}
-		r=requests.post( 'http://localhost:5000/api/files/local', headers=headers,files=files)
+		datagen, headers = multipart_encode({"file": open(job['gcodePath'].split('/')[-1], "rb")})
+		headers['X-Api-Key']=octoprint_api_key
+		request = urllib2.Request("http://localhost:5000/api/files/local", datagen, headers)
+		# Actually do the request, and get the response
+		postResponse=urllib2.urlopen(request).read()
+		app_log.debug("Post to octoprint response: " + str(postResponse))
+
+		# files = {job['gcodePath']: open(job['gcodePath'].split('/')[-1], 'rb')}
+		# r=requests.post( 'http://localhost:5000/api/files/local', headers=headers,files=files)
+		# app_log.debug("Sent file to octoprint: " + r.text)
 		# print "Response: " + str(r)
 		# print "Response Text: " + str(r.text)
-		decodedData=json.loads(r.text)
+		decodedData=json.loads(postResponse)
 		if( decodedData['done']==True):
 			os.remove(job['gcodePath'].split('/')[-1])
 			return True
 		else:
 			return False
-	except:
+	except urllib2.URLError as e:
+		print e.code
+		print e.reason
+		app_log.debug("Exception sending file to octoprint: "  + str(sys.exc_info()[0]) )
 		return False
+
+def cancelPrint():
+	turnOnBlue()
+	app_log.debug("Getting printer temps")
+	headers={'X-Api-Key':octoprint_api_key,'Content-Type':'application/json'}
+	data={'command':'cancel'}
+	r=requests.post('http://localhost:5000/api/job',headers=headers,data=json.dumps(data))
+	app_log.debug("(" + r.text + ")")
+	app_log.debug("Homing Axis")
+	headers={'X-Api-Key':octoprint_api_key,'Content-Type':'application/json'}
+	data={'command':'home', "axes":["x","y"]}
+	r=requests.post('http://localhost:5000/api/printer/printhead',headers=headers,data=json.dumps(data))
+	app_log.debug("(" + r.text + ")")
+	updateBotStatus(statusCode=1,message='Cancel Button Pressed')
+	sleep(2)
+	turnOffBlue()
+
 
 def octoprintFile(job):
 	fileName=job['gcodePath'].split('/')[-1]
@@ -343,19 +543,40 @@ def octoprintFile(job):
 		app_log.debug("Failed to print: " + str(r) + r.text)
 		return False
 
-def updateBotStatus(statusCode=99,message=''):
+def readyButtonPressed():
+	turnOnBlue()
+	updateBotStatus(statusCode=0,message='Ready Button Pressed')
+	sleep(2)
+	turnOffBlue()
+
+def updateBotStatus(statusCode=99,message='',temp=0,diskSpace=0):
+	app_log.debug("Updating printer status: " + message)
+	if(temp==0):
+		app_log.debug("temp is 0")
+		temps=printerTemps()
+		temp=temps['hotend']
+		app_log.debug("Temp Now: ")
+		app_log.debug(temp)
+	if diskSpace==0:
+		diskSpace=freeSpace()
+	app_log.debug("Updating printer status temp: " + str(temp))
+	app_log.debug("Updating printer status diskSpace: " + str(diskSpace))
 	if statusCode==99:
-		data={'message':message}
+		data={'message':message,'temp':temp,'diskSpace':diskSpace}
+		app_log.debug("Sending Data: ")
+		app_log.debug(data)
 		headers={'Authorization':api_key}
 		try:
-			r=requests.put(katana_url + 'bots/' + str(workerBeeId) + '/message',data=data,headers=headers)
+			r=requests.put(fabhive_url + 'bots/' + str(workerBeeId) + '/message',data=data,headers=headers)
 		except:
 			app_log.debug("Could not update bot status. Network Issue.")
 	else:
-		data={'status':str(statusCode),'message':message}
+		data={'status':str(statusCode),'message':message,'temp':temp,'diskSpace':diskSpace}
+		app_log.debug("Sending Data: ")
+		app_log.debug(data)
 		headers={'Authorization':api_key}
 		try:
-			r=requests.put(katana_url + 'bots/' + str(workerBeeId),data=data,headers=headers)
+			r=requests.put(fabhive_url + 'bots/' + str(workerBeeId),data=data,headers=headers)
 		except:
 			app_log.debug("Could not update bot status. Network Issue.")
 		# print "response: " + r.text
@@ -372,8 +593,39 @@ class HiveClient(Protocol):
 		self.transport.write(json.dumps(data))
 
 		updateBotStatus(statusCode=1,message='Connected to the hive.')
+		try:
+			torHostname=file_get_contents(torHostnameFile).rstrip('\n')
+			app_log.debug("Tor Hostname: " + torHostname)
+		except:
+			app_log.debug("Could not tor hostname.")
 
+		data={'hostname':torHostname}
+		headers={'Authorization':api_key}
+		try:
+		  r=requests.put(fabhive_url + 'bots/' + str(workerBeeId) + '/hostname',data=data,headers=headers)
+		except:
+		  app_log.debug("Could not update bot status. Network Issue.")
+
+		##Report IP Address
+		try:
+			s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+			s.connect(("8.8.8.8",80))
+			address=s.getsockname()[0]
+			app_log.debug("IP Address: " + address)
+			s.close()
+			data={'address':address}
+			headers={'Authorization':api_key}
+			try:
+			  r=requests.put(fabhive_url + 'bots/' + str(workerBeeId) + '/address',data=data,headers=headers)
+			except:
+			  app_log.debug("Unable to report Address")
+
+		except:
+			app_log.debug("Unable to get Address")
+
+		##Check In to FabHive every minute
 		self.checkInRepeater.start(1 * MINUTES)
+
 		self.hasConnected=True
 
 	def dataReceived(self, data):
@@ -398,7 +650,7 @@ class HiveClient(Protocol):
 						updateBotStatus(statusCode=0,message='Job was already taken')
 						currentJobId=0
 				else:
-					updateBotStatus(statusCode=0,message='Job was already taken')
+					updateBotStatus(statusCode=0,message='Job failed to load on Octoprint')
 					currentJobId=0
 
 
@@ -406,11 +658,11 @@ class HiveClient(Protocol):
 		app_log.debug("Stopping all timers")
 		self.checkInRepeater.stop
 
+
 	def checkBotIn(self):
 		global printingStatus
 		global isPrinting
 		global currentJobId
-		checkConfigFile();
 		if(self.hasConnected):
 			showStatus()
 			app_log.debug("I should check in now. Queen Bee might be worried about me.")
@@ -425,6 +677,8 @@ class HiveClient(Protocol):
 
 			if(status=="printing complete"):
 				printStatus=getPrintingStatus()
+				diskUsed=freeSpace()
+				updateBotStatus(statusCode=99,message='Checked In',temp=printStatus['temperature'],diskSpace=diskUsed)
 				if(currentJobId>0):
 					if(printingStatus['percentComplete']==100):
 						while True:
@@ -439,7 +693,8 @@ class HiveClient(Protocol):
 			if(status=="printing"):
 				app_log.debug("I'm printing")
 				printStatus=getPrintingStatus()
-				updateBotStatus(statusCode=1,message='Printing: ' + printStatus['fileName'] + '<BR/>Percent Complete: ' + str(math.ceil(printStatus['percentComplete'])))
+				diskUsed=freeSpace()
+				updateBotStatus(statusCode=1,message='Printing: ' + printStatus['fileName'] + '<BR/>Percent Complete: ' + str(math.ceil(printStatus['percentComplete'])),temp=printStatus['temperature'],diskSpace=diskUsed)
 
 		 	if(status=="idle" and isPrinting==False):
 				app_log.debug("Requesting job")
@@ -458,42 +713,11 @@ class HiveClient(Protocol):
 
 class WorkerBee(object):
 	def __init__(self):
-
-		# self.pronsole=pronsole()
-		# lcd.set_color(1.0, 1.0, 0.0)
-		# lcd.clear()
-		# lcd.message('Connecting to \nprinter...')
-		# try:
-		# 	self.pronsole.connect_to_printer(printerPort, 250000)
-		# 	time.sleep(2)
-		# except:
-		# 	print 'Failed to connect to printer: ', sys.exc_info()[0]
-		# 	updateBotStatus(statusCode=3,message='Could not connect to printer')
-		# 	raise
-
-		updateBotStatus(statusCode=1,message='Waiting for printer to come online.')
-		# while not self.pronsole.online:
-		# 	print "waiting for printer to come online"
-		# 	time.sleep(5)
 		updateBotStatus(statusCode=1,message='Printer is online.')
 		if (hasLCD):
 			lcd.set_color(0.0, 1.0, 0.0)
 			lcd.clear()
 			lcd.message('Connected.')
-
-	# def printerStatus(self):
-	# 	# data={'status':str(statusCode),'message':message}
-	# 	headers={'X-Api-Key':octoprint_api_key}
-	# 	r=requests.get('http://localhost/' + 'api/job',headers=headers)
-	# 	decodedData=json.loads(r.text)
-	# 	if ( decodedData['state'] == 'Operational'):
-	# 		return 'idle'
-	# 	if ( decodedData['state'] == 'Printing'):
-	# 		return 'printing'
-	# 	if ( decodedData['state'] == 'Closed'):
-	# 		return 'offline'
-	#
-	# 	return 'other'
 
 
 
@@ -501,9 +725,20 @@ class WorkerBee(object):
 class HiveFactory(ReconnectingClientFactory):
 	def __init__(self):
 		self.protocol=HiveClient(self)
-		self.checkTempRepeater = LoopingCall(self.checkPrinterTemp)
 		self.workerBee=WorkerBee()
-		self.checkTempRepeater.start(1*15)
+
+		##Check temp every 15 seconds for LED
+		self.checkTempRepeater = LoopingCall(self.checkPrinterTemp)
+		self.checkTempRepeater.start(1*15,True)
+
+		##Check for new config file every 30 seconds
+		self.configFileRepeater=LoopingCall(checkConfigFile)
+		self.configFileRepeater.start(1*30,True)
+
+		##Check cancel and ready buttons every 3 seconds
+		if hasFHBoard:
+			self.buttonCheckRepeater=LoopingCall(buttonChecker)
+			self.buttonCheckRepeater.start(1*3,True)
 
 	def startedConnecting(self, connector):
 		app_log.debug('Started to connect.')
@@ -527,6 +762,12 @@ class HiveFactory(ReconnectingClientFactory):
 
 	def checkPrinterTemp(self):
 		# extruderTemp=self.workerBee.pronsole.status.extruder_temp
+		if hasFHBoard:
+			temps=printerTemps()
+			if(temps['hotend']>40):
+				turnOnRed()
+			else:
+				turnOffRed()
 		if (hasLCD):
 			temps=printerTemps()
 			if(temps['hotend']>40):
@@ -538,14 +779,7 @@ class HiveFactory(ReconnectingClientFactory):
 			lcd.message("E Temp:" + str(temps['hotend']) + "\n")
 			lcd.message("B Temp:" + str(temps['bed']) + "\n")
 
-	# def checkInTimer(self):
-	# 	if(self.hasConnected):
-	# 		print "I should check in now. Queen Bee might be worried about me."
-	# 		self.protocol.checkBotIn
-	# 	else:
-	# 		print "We haven't connected yet. No need to check in yet."
-
-
+getOctoprintAPIVersion()
 reactor.connectTCP("fabhive.buzz", 5005, HiveFactory())
 
 # reactor.callWhenRunning(WorkerBee())
