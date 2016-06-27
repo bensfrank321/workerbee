@@ -29,7 +29,7 @@ import inspect, shutil
 import re
 from time import sleep
 import RPi.GPIO as GPIO
-
+import threading
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
@@ -568,23 +568,72 @@ def updateBeeStatus(statusCode=99,message='',temp=0,diskSpace=0):
 		except:
 			app_log.debug("Could not update bot status. Network Issue.")
 	else:
-		data={'status':str(statusCode),'message':message,'temp':temp,'diskSpace':diskSpace}
+		data={'status':str(statusCode),'message':message,'temperature':temp,'diskSpaceFree':diskSpace}
 		app_log.debug("Sending Data: ")
 		app_log.debug(data)
-		headers={'Authorization':api_key}
+		headers={'X-API-Key':api_key}
 		try:
-			r=requests.put(fabhive_url + 'bots/' + str(workerBeeId),data=data,headers=headers)
+			r=requests.put(fabhive_url + 'bees/' + str(workerBeeId) + '?' + urllib.urlencode(data),headers=headers)
 		except:
 			app_log.debug("Could not update bot status. Network Issue.")
 		# print "response: " + r.text
 
+def reportTorName():
+	try:
+		torHostname=file_get_contents(torHostnameFile).rstrip('\n')
+		app_log.debug("Tor Hostname: " + torHostname)
+	except:
+		app_log.debug("Could not tor hostname.")
+
+	data={'hostname':torHostname}
+	headers={'X-API-Key':api_key}
+	try:
+		r=requests.put(fabhive_url + 'bees/' + str(workerBeeId) + '?' + urllib.urlencode(data),headers=headers)
+	except:
+		app_log.debug("Could not update hostname.")
+
+def checkBotIn():
+	global printingStatus
+	global isPrinting
+	global currentJobId
+
+	status=printerStatus()
+
+	if(status=="printing complete"):
+		printStatus=getPrintingStatus()
+		diskUsed=freeSpace()
+		updateBeeStatus(statusCode=99,message='Checked In',temp=printStatus['temperature'],diskSpace=diskUsed)
+		if(currentJobId>0):
+			if(printingStatus['percentComplete']==100):
+				while True:
+					app_log.debug("Marking job complete")
+					result=markJobCompleted(currentJobId)
+					app_log.debug("Marking job complete: " + str(result))
+					if(result):
+						app_log.debug("Job marked complete")
+						break
+				currentJobId=0
+
+	if(status=="printing"):
+		app_log.debug("I'm printing")
+		printStatus=getPrintingStatus()
+		diskUsed=freeSpace()
+		updateBeeStatus(statusCode=1,message='Printing: ' + printStatus['fileName'] + '<BR/>Percent Complete: ' + str(math.ceil(printStatus['percentComplete'])),temp=printStatus['temperature'],diskSpace=diskUsed)
+
+	if(status=="idle" and isPrinting==False):
+		app_log.debug("Requesting job")
+		self.requestJob()
+
+	threading.Timer(60, checkBotIn).start()
 
 # while True:
 if octoprint_on():
 	getOctoprintAPIVersion()
 	printStatus=getPrintingStatus()
 	diskUsed=freeSpace()
-	updateBeeStatus(statusCode=99,message='Checked In',temp=printStatus['temperature'],diskSpace=diskUsed)
+	updateBeeStatus(statusCode=99,message='Starting Up',temp=printStatus['temperature'],diskSpace=diskUsed)
+	reportTorName()
+	checkBotIn()
 
 #All previous code for reference
 #
