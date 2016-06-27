@@ -247,7 +247,7 @@ def getOctoprintAPIVersion():
 			octoprintAPIVersion['api']='9999'
 	else:
 		app_log.debug("OctoPrint is not up yet")
-		updateBotStatus(2,'OctoPrint is not up yet')
+		updateBeeStatus(2,'OctoPrint is not up yet')
 
 ##This function might not be needed.  Keeping it here as a placeholder for now.
 def isPrinterOnline():
@@ -255,7 +255,7 @@ def isPrinterOnline():
 	try:
 		r=requests.get('http://localhost:5000/' + 'api/job',headers=headers)
 		if(decodedData['state']=='Offline'):
-			updateBotStatus(3,'Printer is offline for octoprint')
+			updateBeeStatus(3,'Printer is offline for octoprint')
 			return False
 	except:
 		e = sys.exc_info()[0]
@@ -280,7 +280,7 @@ def printerStatus():
 		decodedData=json.loads(r.text)
 
 		if(decodedData['state']=='Offline'):
-			updateBotStatus(3,'Printer is offline for octoprint')
+			updateBeeStatus(3,'Printer is offline for octoprint')
 			return 'offline'
 		if ( decodedData['state'] == 'Operational' and bot_stats['status']==0):
 			isPrinting=False
@@ -291,7 +291,7 @@ def printerStatus():
 		if ( decodedData['state'] == 'Printing' and bot_stats['status']!=0):
 			return 'printing'
 		if(decodedData['state'] == 'Printing' and bot_stats['status']==0):
-			updateBotStatus(statusCode=1,message='Connected to the hive.')
+			updateBeeStatus(statusCode=1,message='Connected to the hive.')
 			return 'printing'
 		if ( decodedData['state'] == 'Closed' or bot_stats['status']!=0):
 			return 'offline'
@@ -302,7 +302,7 @@ def printerStatus():
 		app_log.debug("API Version: " + str(getOctoprintAPIVersion()))
 		if(octoprintAPIVersion['api']=='9999'):
 			app_log.debug("Unable to get API Version")
-			updateBotStatus(2,'Unable to get API for OctoPrint')
+			updateBeeStatus(2,'Unable to get API for OctoPrint')
 			return 'offline'
 		else:
 			return 'other'
@@ -326,15 +326,12 @@ def getPrintingStatus():
 
 
 	r=requests.get('http://localhost:5000/api/printer',headers=headers)
-	decodedData=json.loads(r.text)
 	try:
-		if(vercmp(octoprintAPIVersion['server'],'1.2.2')):
-			printingStatus['temperature']=decodedData['temps']['tool0']['actual']
-		else:
-			printingStatus['temperature']=decodedData['temps']['tool0']['actual']
+		decodedData=json.loads(r.text)
+		printingStatus['temperature']=decodedData['temps']['tool0']['actual']
 	except:
-			app_log.debug("getPrintingStatus: Error getting temperature: ")
-			printingStatus['temperature']=0
+		app_log.debug("getPrintingStatus: Error getting temperature: ")
+		printingStatus['temperature']=0
 	return printingStatus
 
 
@@ -522,7 +519,7 @@ def cancelPrint():
 	data={'command':'home', "axes":["x","y"]}
 	r=requests.post('http://localhost:5000/api/printer/printhead',headers=headers,data=json.dumps(data))
 	app_log.debug("(" + r.text + ")")
-	updateBotStatus(statusCode=1,message='Cancel Button Pressed')
+	updateBeeStatus(statusCode=1,message='Cancel Button Pressed')
 	sleep(2)
 	turnOffBlue()
 
@@ -545,11 +542,11 @@ def octoprintFile(job):
 
 def readyButtonPressed():
 	turnOnBlue()
-	updateBotStatus(statusCode=0,message='Ready Button Pressed')
+	updateBeeStatus(statusCode=0,message='Ready Button Pressed')
 	sleep(2)
 	turnOffBlue()
 
-def updateBotStatus(statusCode=99,message='',temp=0,diskSpace=0):
+def updateBeeStatus(statusCode=99,message='',temp=0,diskSpace=0):
 	app_log.debug("Updating printer status: " + message)
 	if(temp==0):
 		app_log.debug("temp is 0")
@@ -562,12 +559,12 @@ def updateBotStatus(statusCode=99,message='',temp=0,diskSpace=0):
 	app_log.debug("Updating printer status temp: " + str(temp))
 	app_log.debug("Updating printer status diskSpace: " + str(diskSpace))
 	if statusCode==99:
-		data={'message':message,'temp':temp,'diskSpace':diskSpace}
+		data={'message':message,'temperature':temp,'diskSpaceFree':diskSpace}
 		app_log.debug("Sending Data: ")
 		app_log.debug(data)
-		headers={'Authorization':api_key}
+		headers={'X-API-Key':api_key}
 		try:
-			r=requests.put(fabhive_url + 'bots/' + str(workerBeeId) + '/message',data=data,headers=headers)
+			r=requests.put(fabhive_url + 'bees/' + str(workerBeeId) + '?' + urllib.urlencode(data),headers=headers)
 		except:
 			app_log.debug("Could not update bot status. Network Issue.")
 	else:
@@ -585,9 +582,9 @@ def updateBotStatus(statusCode=99,message='',temp=0,diskSpace=0):
 # while True:
 if octoprint_on():
 	getOctoprintAPIVersion()
-    printStatus=getPrintingStatus()
+	printStatus=getPrintingStatus()
 	diskUsed=freeSpace()
-	updateBotStatus(statusCode=99,message='Checked In',temp=printStatus['temperature'],diskSpace=diskUsed)
+	updateBeeStatus(statusCode=99,message='Checked In',temp=printStatus['temperature'],diskSpace=diskUsed)
 
 #All previous code for reference
 #
@@ -605,7 +602,7 @@ if octoprint_on():
 # 		data={'type':'connect','bot':workerBeeId}
 # 		self.transport.write(json.dumps(data))
 #
-# 		updateBotStatus(statusCode=1,message='Connected to the hive.')
+# 		updateBeeStatus(statusCode=1,message='Connected to the hive.')
 # 		try:
 # 			torHostname=file_get_contents(torHostnameFile).rstrip('\n')
 # 			app_log.debug("Tor Hostname: " + torHostname)
@@ -651,19 +648,19 @@ if octoprint_on():
 # 			decodedData=json.loads(message)
 # 			if(decodedData['type']=='job'):
 # 				app_log.debug("received a new job")
-# 				updateBotStatus(statusCode=1,message='Received job: ' + decodedData['filename'])
+# 				updateBeeStatus(statusCode=1,message='Received job: ' + decodedData['filename'])
 # 				if(addJobToOctoprint(decodedData)==True):
 # 					app_log.debug("This worked, mark the file as taken")
 # 					result=markJobTaken(decodedData['id'])
 # 					if(result==True):
-# 						updateBotStatus(statusCode=1,message='Printing: ' + decodedData['filename'])
+# 						updateBeeStatus(statusCode=1,message='Printing: ' + decodedData['filename'])
 # 						currentJobId=decodedData['id']
 # 						result=octoprintFile(decodedData)
 # 					else:
-# 						updateBotStatus(statusCode=0,message='Job was already taken')
+# 						updateBeeStatus(statusCode=0,message='Job was already taken')
 # 						currentJobId=0
 # 				else:
-# 					updateBotStatus(statusCode=0,message='Job failed to load on Octoprint')
+# 					updateBeeStatus(statusCode=0,message='Job failed to load on Octoprint')
 # 					currentJobId=0
 #
 #
@@ -691,7 +688,7 @@ if octoprint_on():
 # 			if(status=="printing complete"):
 # 				printStatus=getPrintingStatus()
 # 				diskUsed=freeSpace()
-# 				updateBotStatus(statusCode=99,message='Checked In',temp=printStatus['temperature'],diskSpace=diskUsed)
+# 				updateBeeStatus(statusCode=99,message='Checked In',temp=printStatus['temperature'],diskSpace=diskUsed)
 # 				if(currentJobId>0):
 # 					if(printingStatus['percentComplete']==100):
 # 						while True:
@@ -707,7 +704,7 @@ if octoprint_on():
 # 				app_log.debug("I'm printing")
 # 				printStatus=getPrintingStatus()
 # 				diskUsed=freeSpace()
-# 				updateBotStatus(statusCode=1,message='Printing: ' + printStatus['fileName'] + '<BR/>Percent Complete: ' + str(math.ceil(printStatus['percentComplete'])),temp=printStatus['temperature'],diskSpace=diskUsed)
+# 				updateBeeStatus(statusCode=1,message='Printing: ' + printStatus['fileName'] + '<BR/>Percent Complete: ' + str(math.ceil(printStatus['percentComplete'])),temp=printStatus['temperature'],diskSpace=diskUsed)
 #
 # 		 	if(status=="idle" and isPrinting==False):
 # 				app_log.debug("Requesting job")
@@ -726,7 +723,7 @@ if octoprint_on():
 #
 # class WorkerBee(object):
 # 	def __init__(self):
-# 		updateBotStatus(statusCode=1,message='Printer is online.')
+# 		updateBeeStatus(statusCode=1,message='Printer is online.')
 # 		if (hasLCD):
 # 			lcd.set_color(0.0, 1.0, 0.0)
 # 			lcd.clear()
