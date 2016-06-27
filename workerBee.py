@@ -177,7 +177,7 @@ print "WorkerBee started."
 
 def octoprint_on():
     try:
-        response=urllib2.urlopen('http://localhost:5000',timeout=1)
+        response=urllib2.urlopen('http://localhost:5000',timeout=10)
         return True
     except:
 	    return False
@@ -242,7 +242,7 @@ def getOctoprintAPIVersion():
 			octoprintAPIVersion['server']=decodedData['server']
 			app_log.debug("Octoprint API Versions: API(" + octoprintAPIVersion['api'] + ") Server("+octoprintAPIVersion['server']+")")
 		except:
-			app_log.debug("Exceptiong determining API version" + str(sys.exc_info()[0]))
+			app_log.debug("Exception determining API version" + str(sys.exc_info()[0]))
 			app_log.debug("API Key used: " + octoprint_api_key)
 			octoprintAPIVersion['api']='9999'
 	else:
@@ -581,206 +581,219 @@ def updateBotStatus(statusCode=99,message='',temp=0,diskSpace=0):
 			app_log.debug("Could not update bot status. Network Issue.")
 		# print "response: " + r.text
 
-#Twisted Implementation
-class HiveClient(Protocol):
-	def __init__(self, factory):
-		self.factory = factory
-		self.hasConnected=False
-		self.checkInRepeater = LoopingCall(self.checkBotIn)
 
-	def connectionMade(self):
-		data={'type':'connect','bot':workerBeeId}
-		self.transport.write(json.dumps(data))
+# while True:
+if octoprint_on():
+	getOctoprintAPIVersion()
+    printStatus=getPrintingStatus()
+	diskUsed=freeSpace()
+	updateBotStatus(statusCode=99,message='Checked In',temp=printStatus['temperature'],diskSpace=diskUsed)
 
-		updateBotStatus(statusCode=1,message='Connected to the hive.')
-		try:
-			torHostname=file_get_contents(torHostnameFile).rstrip('\n')
-			app_log.debug("Tor Hostname: " + torHostname)
-		except:
-			app_log.debug("Could not tor hostname.")
-
-		data={'hostname':torHostname}
-		headers={'Authorization':api_key}
-		try:
-		  r=requests.put(fabhive_url + 'bots/' + str(workerBeeId) + '/hostname',data=data,headers=headers)
-		except:
-		  app_log.debug("Could not update bot status. Network Issue.")
-
-		##Report IP Address
-		try:
-			s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-			s.connect(("8.8.8.8",80))
-			address=s.getsockname()[0]
-			app_log.debug("IP Address: " + address)
-			s.close()
-			data={'address':address}
-			headers={'Authorization':api_key}
-			try:
-			  r=requests.put(fabhive_url + 'bots/' + str(workerBeeId) + '/address',data=data,headers=headers)
-			except:
-			  app_log.debug("Unable to report Address")
-
-		except:
-			app_log.debug("Unable to get Address")
-
-		##Check In to FabHive every minute
-		self.checkInRepeater.start(1 * MINUTES)
-
-		self.hasConnected=True
-
-	def dataReceived(self, data):
-		global currentJobId
-		app_log.debug( "> Received: ''%s''\n" % (data))
-		messages=data.split('\n')
-
-		for message in messages:
-			app_log.debug("messages: " + message)
-			decodedData=json.loads(message)
-			if(decodedData['type']=='job'):
-				app_log.debug("received a new job")
-				updateBotStatus(statusCode=1,message='Received job: ' + decodedData['filename'])
-				if(addJobToOctoprint(decodedData)==True):
-					app_log.debug("This worked, mark the file as taken")
-					result=markJobTaken(decodedData['id'])
-					if(result==True):
-						updateBotStatus(statusCode=1,message='Printing: ' + decodedData['filename'])
-						currentJobId=decodedData['id']
-						result=octoprintFile(decodedData)
-					else:
-						updateBotStatus(statusCode=0,message='Job was already taken')
-						currentJobId=0
-				else:
-					updateBotStatus(statusCode=0,message='Job failed to load on Octoprint')
-					currentJobId=0
-
-
-	def stopAllTimers(self):
-		app_log.debug("Stopping all timers")
-		self.checkInRepeater.stop
-
-
-	def checkBotIn(self):
-		global printingStatus
-		global isPrinting
-		global currentJobId
-		if(self.hasConnected):
-			showStatus()
-			app_log.debug("I should check in now. Queen Bee might be worried about me.")
-
-			data={'type':'checkIn','bot':workerBeeId}
-			self.transport.write(json.dumps(data) + '\n')
-
-			status=printerStatus()
-
-			app_log.debug("Status: " + status)
-			app_log.debug("isPrinting: " + str(isPrinting))
-
-			if(status=="printing complete"):
-				printStatus=getPrintingStatus()
-				diskUsed=freeSpace()
-				updateBotStatus(statusCode=99,message='Checked In',temp=printStatus['temperature'],diskSpace=diskUsed)
-				if(currentJobId>0):
-					if(printingStatus['percentComplete']==100):
-						while True:
-							app_log.debug("Marking job complete")
-							result=markJobCompleted(currentJobId)
-							app_log.debug("Marking job complete: " + str(result))
-							if(result):
-								app_log.debug("Job marked complete")
-								break
-						currentJobId=0
-
-			if(status=="printing"):
-				app_log.debug("I'm printing")
-				printStatus=getPrintingStatus()
-				diskUsed=freeSpace()
-				updateBotStatus(statusCode=1,message='Printing: ' + printStatus['fileName'] + '<BR/>Percent Complete: ' + str(math.ceil(printStatus['percentComplete'])),temp=printStatus['temperature'],diskSpace=diskUsed)
-
-		 	if(status=="idle" and isPrinting==False):
-				app_log.debug("Requesting job")
-				self.requestJob()
-
-		else:
-			app_log.debug("We haven't connected yet. No need to check in yet.")
-
-	def requestJob(self):
-		if(self.hasConnected):
-			data={'type':'jobRequest','bot':workerBeeId}
-			self.transport.write(json.dumps(data))
-		else:
-			app_log.debug("We haven't connected yet.")
-
-
-class WorkerBee(object):
-	def __init__(self):
-		updateBotStatus(statusCode=1,message='Printer is online.')
-		if (hasLCD):
-			lcd.set_color(0.0, 1.0, 0.0)
-			lcd.clear()
-			lcd.message('Connected.')
-
-
-
-
-class HiveFactory(ReconnectingClientFactory):
-	def __init__(self):
-		self.protocol=HiveClient(self)
-		self.workerBee=WorkerBee()
-
-		##Check temp every 15 seconds for LED
-		self.checkTempRepeater = LoopingCall(self.checkPrinterTemp)
-		self.checkTempRepeater.start(1*15,True)
-
-		##Check for new config file every 30 seconds
-		self.configFileRepeater=LoopingCall(checkConfigFile)
-		self.configFileRepeater.start(1*30,True)
-
-		##Check cancel and ready buttons every 3 seconds
-		if hasFHBoard:
-			self.buttonCheckRepeater=LoopingCall(buttonChecker)
-			self.buttonCheckRepeater.start(1*3,True)
-
-	def startedConnecting(self, connector):
-		app_log.debug('Started to connect.')
-
-
-	def buildProtocol(self, addr):
-		app_log.debug('Connected.')
-		app_log.debug('Resetting reconnection delay')
-		self.resetDelay()
-		return HiveClient(self)
-
-	def clientConnectionLost(self, connector, reason):
-		app_log.debug('Lost connection.  Reason:' + str(reason))
-		self.protocol.stopAllTimers();
-		ReconnectingClientFactory.clientConnectionLost(self, connector, reason)
-
-	def clientConnectionFailed(self, connector, reason):
-		app_log.debug('Connection failed. Reason:' + str(reason))
-		self.protocol.stopAllTimers();
-		ReconnectingClientFactory.clientConnectionFailed(self, connector, reason)
-
-	def checkPrinterTemp(self):
-		# extruderTemp=self.workerBee.pronsole.status.extruder_temp
-		if hasFHBoard:
-			temps=printerTemps()
-			if(temps['hotend']>40):
-				turnOnRed()
-			else:
-				turnOffRed()
-		if (hasLCD):
-			temps=printerTemps()
-			if(temps['hotend']>40):
-				lcd.set_color(1.0,0.0,0.0)
-			else:
-				lcd.set_color(0.0,0.0,1.0)
-
-			lcd.clear()
-			lcd.message("E Temp:" + str(temps['hotend']) + "\n")
-			lcd.message("B Temp:" + str(temps['bed']) + "\n")
-
-getOctoprintAPIVersion()
-reactor.connectTCP("fabhive.buzz", 5005, HiveFactory())
-
-# reactor.callWhenRunning(WorkerBee())
-reactor.run()
+#All previous code for reference
+#
+#
+#
+#
+# #Twisted Implementation
+# class HiveClient(Protocol):
+# 	def __init__(self, factory):
+# 		self.factory = factory
+# 		self.hasConnected=False
+# 		self.checkInRepeater = LoopingCall(self.checkBotIn)
+#
+# 	def connectionMade(self):
+# 		data={'type':'connect','bot':workerBeeId}
+# 		self.transport.write(json.dumps(data))
+#
+# 		updateBotStatus(statusCode=1,message='Connected to the hive.')
+# 		try:
+# 			torHostname=file_get_contents(torHostnameFile).rstrip('\n')
+# 			app_log.debug("Tor Hostname: " + torHostname)
+# 		except:
+# 			app_log.debug("Could not tor hostname.")
+#
+# 		data={'hostname':torHostname}
+# 		headers={'Authorization':api_key}
+# 		try:
+# 		  r=requests.put(fabhive_url + 'bots/' + str(workerBeeId) + '/hostname',data=data,headers=headers)
+# 		except:
+# 		  app_log.debug("Could not update bot status. Network Issue.")
+#
+# 		##Report IP Address
+# 		try:
+# 			s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+# 			s.connect(("8.8.8.8",80))
+# 			address=s.getsockname()[0]
+# 			app_log.debug("IP Address: " + address)
+# 			s.close()
+# 			data={'address':address}
+# 			headers={'Authorization':api_key}
+# 			try:
+# 			  r=requests.put(fabhive_url + 'bots/' + str(workerBeeId) + '/address',data=data,headers=headers)
+# 			except:
+# 			  app_log.debug("Unable to report Address")
+#
+# 		except:
+# 			app_log.debug("Unable to get Address")
+#
+# 		##Check In to FabHive every minute
+# 		self.checkInRepeater.start(1 * MINUTES)
+#
+# 		self.hasConnected=True
+#
+# 	def dataReceived(self, data):
+# 		global currentJobId
+# 		app_log.debug( "> Received: ''%s''\n" % (data))
+# 		messages=data.split('\n')
+#
+# 		for message in messages:
+# 			app_log.debug("messages: " + message)
+# 			decodedData=json.loads(message)
+# 			if(decodedData['type']=='job'):
+# 				app_log.debug("received a new job")
+# 				updateBotStatus(statusCode=1,message='Received job: ' + decodedData['filename'])
+# 				if(addJobToOctoprint(decodedData)==True):
+# 					app_log.debug("This worked, mark the file as taken")
+# 					result=markJobTaken(decodedData['id'])
+# 					if(result==True):
+# 						updateBotStatus(statusCode=1,message='Printing: ' + decodedData['filename'])
+# 						currentJobId=decodedData['id']
+# 						result=octoprintFile(decodedData)
+# 					else:
+# 						updateBotStatus(statusCode=0,message='Job was already taken')
+# 						currentJobId=0
+# 				else:
+# 					updateBotStatus(statusCode=0,message='Job failed to load on Octoprint')
+# 					currentJobId=0
+#
+#
+# 	def stopAllTimers(self):
+# 		app_log.debug("Stopping all timers")
+# 		self.checkInRepeater.stop
+#
+#
+# 	def checkBotIn(self):
+# 		global printingStatus
+# 		global isPrinting
+# 		global currentJobId
+# 		if(self.hasConnected):
+# 			showStatus()
+# 			app_log.debug("I should check in now. Queen Bee might be worried about me.")
+#
+# 			data={'type':'checkIn','bot':workerBeeId}
+# 			self.transport.write(json.dumps(data) + '\n')
+#
+# 			status=printerStatus()
+#
+# 			app_log.debug("Status: " + status)
+# 			app_log.debug("isPrinting: " + str(isPrinting))
+#
+# 			if(status=="printing complete"):
+# 				printStatus=getPrintingStatus()
+# 				diskUsed=freeSpace()
+# 				updateBotStatus(statusCode=99,message='Checked In',temp=printStatus['temperature'],diskSpace=diskUsed)
+# 				if(currentJobId>0):
+# 					if(printingStatus['percentComplete']==100):
+# 						while True:
+# 							app_log.debug("Marking job complete")
+# 							result=markJobCompleted(currentJobId)
+# 							app_log.debug("Marking job complete: " + str(result))
+# 							if(result):
+# 								app_log.debug("Job marked complete")
+# 								break
+# 						currentJobId=0
+#
+# 			if(status=="printing"):
+# 				app_log.debug("I'm printing")
+# 				printStatus=getPrintingStatus()
+# 				diskUsed=freeSpace()
+# 				updateBotStatus(statusCode=1,message='Printing: ' + printStatus['fileName'] + '<BR/>Percent Complete: ' + str(math.ceil(printStatus['percentComplete'])),temp=printStatus['temperature'],diskSpace=diskUsed)
+#
+# 		 	if(status=="idle" and isPrinting==False):
+# 				app_log.debug("Requesting job")
+# 				self.requestJob()
+#
+# 		else:
+# 			app_log.debug("We haven't connected yet. No need to check in yet.")
+#
+# 	def requestJob(self):
+# 		if(self.hasConnected):
+# 			data={'type':'jobRequest','bot':workerBeeId}
+# 			self.transport.write(json.dumps(data))
+# 		else:
+# 			app_log.debug("We haven't connected yet.")
+#
+#
+# class WorkerBee(object):
+# 	def __init__(self):
+# 		updateBotStatus(statusCode=1,message='Printer is online.')
+# 		if (hasLCD):
+# 			lcd.set_color(0.0, 1.0, 0.0)
+# 			lcd.clear()
+# 			lcd.message('Connected.')
+#
+#
+#
+#
+# class HiveFactory(ReconnectingClientFactory):
+# 	def __init__(self):
+# 		self.protocol=HiveClient(self)
+# 		self.workerBee=WorkerBee()
+#
+# 		##Check temp every 15 seconds for LED
+# 		self.checkTempRepeater = LoopingCall(self.checkPrinterTemp)
+# 		self.checkTempRepeater.start(1*15,True)
+#
+# 		##Check for new config file every 30 seconds
+# 		self.configFileRepeater=LoopingCall(checkConfigFile)
+# 		self.configFileRepeater.start(1*30,True)
+#
+# 		##Check cancel and ready buttons every 3 seconds
+# 		if hasFHBoard:
+# 			self.buttonCheckRepeater=LoopingCall(buttonChecker)
+# 			self.buttonCheckRepeater.start(1*3,True)
+#
+# 	def startedConnecting(self, connector):
+# 		app_log.debug('Started to connect.')
+#
+#
+# 	def buildProtocol(self, addr):
+# 		app_log.debug('Connected.')
+# 		app_log.debug('Resetting reconnection delay')
+# 		self.resetDelay()
+# 		return HiveClient(self)
+#
+# 	def clientConnectionLost(self, connector, reason):
+# 		app_log.debug('Lost connection.  Reason:' + str(reason))
+# 		self.protocol.stopAllTimers();
+# 		ReconnectingClientFactory.clientConnectionLost(self, connector, reason)
+#
+# 	def clientConnectionFailed(self, connector, reason):
+# 		app_log.debug('Connection failed. Reason:' + str(reason))
+# 		self.protocol.stopAllTimers();
+# 		ReconnectingClientFactory.clientConnectionFailed(self, connector, reason)
+#
+# 	def checkPrinterTemp(self):
+# 		# extruderTemp=self.workerBee.pronsole.status.extruder_temp
+# 		if hasFHBoard:
+# 			temps=printerTemps()
+# 			if(temps['hotend']>40):
+# 				turnOnRed()
+# 			else:
+# 				turnOffRed()
+# 		if (hasLCD):
+# 			temps=printerTemps()
+# 			if(temps['hotend']>40):
+# 				lcd.set_color(1.0,0.0,0.0)
+# 			else:
+# 				lcd.set_color(0.0,0.0,1.0)
+#
+# 			lcd.clear()
+# 			lcd.message("E Temp:" + str(temps['hotend']) + "\n")
+# 			lcd.message("B Temp:" + str(temps['bed']) + "\n")
+#
+# getOctoprintAPIVersion()
+# reactor.connectTCP("fabhive.buzz", 5005, HiveFactory())
+#
+# # reactor.callWhenRunning(WorkerBee())
+# reactor.run()
