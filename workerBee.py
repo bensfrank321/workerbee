@@ -295,7 +295,7 @@ def printerStatus():
         # Get status from OctoPrint
         headers = {'X-Api-Key': octoprint_api_key}
         r = requests.get('http://localhost:5000/' + 'api/job', headers=headers)
-        # app_log.debug("job status: " + r.text)
+        app_log.debug("job status: " + r.text)
 
         decodedData = json.loads(r.text)
         if (decodedData['state'] == 'Offline'):
@@ -304,7 +304,7 @@ def printerStatus():
         if (decodedData['state'] == 'Operational' and bot_stats['status'] == 0):
             isPrinting = False
             return 'idle'
-        if (decodedData['state'] == 'Operational' and bot_stats['status'] == 1):
+        if (decodedData['state'] == 'Operational' and decodedData['progress']['completion'] == 100):
             isPrinting = False
             return 'printing complete'
         if (decodedData['state'] == 'Printing' and bot_stats['status'] != 0):
@@ -345,10 +345,14 @@ def getPrintingStatus():
         printingStatus['fileName'] = '0'
 
     r = requests.get('http://localhost:5000/api/printer', headers=headers)
+    app_log.debug("shawn status: " + r.text)
     try:
         decodedData = json.loads(r.text)
-        printingStatus['temperature'] = decodedData['temps']['tool0']['actual']
+        printingStatus['temperature'] = decodedData['temperature']['tool0']['actual']
+
     except:
+        e = sys.exc_info()[0]
+        app_log.debug('Exception determining temp:  %s' % e)
         app_log.debug("getPrintingStatus: Error getting temperature: ")
         printingStatus['temperature'] = 0
     return printingStatus
@@ -573,24 +577,25 @@ def updateBeeStatus(statusCode=99, message='', temp=0, diskSpace=0):
         diskSpace = freeSpace()
     app_log.debug("Updating printer status temp: " + str(temp))
     app_log.debug("Updating printer status diskSpace: " + str(diskSpace))
-    if statusCode == 99:
-        data = {'message': message, 'temperature': temp, 'diskSpaceFree': diskSpace}
-        app_log.debug("Sending Data: ")
-        app_log.debug(data)
-        headers = {'X-API-Key': api_key}
-        try:
-            r = requests.put(fabhive_url + 'bees/' + str(workerBeeId) + '?' + urllib.urlencode(data), headers=headers)
-        except:
-            app_log.debug("Could not update bot status. Network Issue.")
-    else:
-        data = {'status': str(statusCode), 'message': message, 'temperature': temp, 'diskSpaceFree': diskSpace}
-        app_log.debug("Sending Data: ")
-        app_log.debug(data)
-        headers = {'X-API-Key': api_key}
-        try:
-            r = requests.put(fabhive_url + 'bees/' + str(workerBeeId) + '?' + urllib.urlencode(data), headers=headers)
-        except:
-            app_log.debug("Could not update bot status. Network Issue.")
+    data={}
+    data['temperature']=temp
+    data['diskSpaceFree']=diskSpace
+
+    if statusCode != 99:
+        data['status']=str(statusCode)
+
+    if message != '':
+        data['message']=message
+
+    data['last_checkin']=str(time.strftime('%Y-%m-%d %H:%M:%S'))
+
+    app_log.debug("Sending Data: ")
+    app_log.debug(data)
+    headers = {'X-API-Key': api_key}
+    try:
+        r = requests.put(fabhive_url + 'bees/' + str(workerBeeId) + '?' + urllib.urlencode(data), headers=headers)
+    except:
+        app_log.debug("Could not update bot status. Network Issue.")
         # print "response: " + r.text
 
 
@@ -613,13 +618,18 @@ def checkBotIn():
     global printingStatus
     global isPrinting
     global currentJobId
+    app_log.debug("Checking Bot In")
 
     status = printerStatus()
+
+    app_log.debug("Status: " + status)
 
     if (status == "printing complete"):
         printStatus = getPrintingStatus()
         diskUsed = freeSpace()
-        updateBeeStatus(statusCode=99, message='Checked In', temp=printStatus['temperature'], diskSpace=diskUsed)
+        # updateBeeStatus(statusCode=99, message='Checked In', temp=printStatus['temperature'], diskSpace=diskUsed)
+        updateBeeStatus(statusCode=99, message='Printing Complete: ' + printStatus['fileName'] + '<BR/>Percent Complete: ' + str(
+            math.ceil(printStatus['percentComplete'])), temp=printStatus['temperature'], diskSpace=diskUsed)
         if (currentJobId > 0):
             if (printingStatus['percentComplete'] == 100):
                 while True:
@@ -630,6 +640,7 @@ def checkBotIn():
                         app_log.debug("Job marked complete")
                         break
                 currentJobId = 0
+
 
     if (status == "printing"):
         app_log.debug("I'm printing")
@@ -642,6 +653,9 @@ def checkBotIn():
         app_log.debug("Requesting job")
         self.requestJob()
 
+    if (status == "offline"):
+        updateBeeStatus(message='Checking In')
+
     threading.Timer(60, checkBotIn).start()
 
 
@@ -653,6 +667,9 @@ if octoprint_on():
     updateBeeStatus(statusCode=99, message='Starting Up', temp=printStatus['temperature'], diskSpace=diskUsed)
     reportTorName()
     checkBotIn()
+
+# while True:
+
 
 # All previous code for reference
 #
