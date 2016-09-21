@@ -419,20 +419,27 @@ def showStatus():
 def markJobTaken(jobID):
     ##Make sure job isn't already taken
     try:
-        headers = {'Authorization': api_key}
+        headers = {'X-API-Key': api_key}
         r = requests.get(fabhive_url + 'jobs/' + str(jobID), headers=headers)
+        app_log.debug("here 1")
+        app_log.debug(r.text)
+        app_log.debug("here 2")
     except:
+        app_log.debug("Brrr...that didn't work")
         return False
 
     decodedData = json.loads(r.text)
+    app_log.debug(r.text)
     if (decodedData['error'] == True or decodedData['status'] != 0):
         return False
     else:
-        headers = {'Authorization': api_key}
-        data = {'status': '1', 'bot': workerBeeId}
+        app_log.debug("here 4")
+        headers = {'X-API-Key': api_key}
+        data = {'status': '1', 'bot_id': workerBeeId}
         try:
             r = requests.put(fabhive_url + 'jobs/' + str(jobID), data=data, headers=headers)
             decodedData = json.loads(r.text)
+            app_log.debug("here 5")
             if (decodedData['error'] == False):
                 app_log.debug("Mark Job Taken: " + r.text)
                 return True
@@ -595,7 +602,7 @@ def updateBeeStatus(statusCode=99, message='', temp=0, diskSpace=0):
     try:
         r = requests.put(fabhive_url + 'bees/' + str(workerBeeId) + '?' + urllib.urlencode(data), headers=headers)
     except:
-        app_log.debug("Could not update bot status. Network Issue.")
+        app_log.debug("Could not update bot status. Network Issue.: " + str(sys.exc_info()[0]))
         # print "response: " + r.text
 
 
@@ -651,22 +658,56 @@ def checkBotIn():
 
     if (status == "idle" and isPrinting == False):
         app_log.debug("Requesting job")
-        self.requestJob()
+        requestJob()
 
     if (status == "offline"):
         updateBeeStatus(message='Checking In')
 
-    threading.Timer(60, checkBotIn).start()
+    time.sleep(60)
 
 
-# while True:
+def requestJob():
+    app_log.debug("Requesting new job")
+    headers = {'X-Api-Key': api_key}
+    try:
+        # Get status from FabHive
+        r = requests.get(fabhive_url + 'hives/' + str(queue_id) + '/next', headers=headers)
+        app_log.debug('here: ' + fabhive_url + 'hives/' + str(queue_id) + '/next')
+        app_log.debug(r.text)
+        decodedData = json.loads(r.text)
+        app_log.debug('here')
+        # app_log.debug("bot url: " + fabhive_url + 'bees/' + str(workerBeeId))
+        app_log.debug("next Job: " + json.dumps(decodedData))
+        job=decodedData['jobs'][0]
+        updateBeeStatus(statusCode=1, message='Received job: ' + job['filename'])
+        if (addJobToOctoprint(job) == True):
+            app_log.debug("This worked, mark the file as taken")
+            result=markJobTaken(job['id'])
+            if(result==True):
+                updateBeeStatus(statusCode=1,message='Printing: ' + job['filename'])
+                currentJobId=job['id']
+                result=octoprintFile(job)
+            else:
+                updateBeeStatus(statusCode=0,message='Job was already taken')
+                currentJobId=0
+        else:
+            updateBeeStatus(statusCode=0,message='Job failed to load on Octoprint')
+            currentJobId=0
+
+    except:
+        e = sys.exc_info()[0]
+        app_log.debug('Exceptiong getting next job:  %s' % e)
+
+
+
 if octoprint_on():
     getOctoprintAPIVersion()
     printStatus = getPrintingStatus()
     diskUsed = freeSpace()
-    updateBeeStatus(statusCode=99, message='Starting Up', temp=printStatus['temperature'], diskSpace=diskUsed)
+    updateBeeStatus(statusCode=1, message='Starting Up', temp=printStatus['temperature'], diskSpace=diskUsed)
     reportTorName()
-    checkBotIn()
+    LoopingCall(checkBotIn).start(15,True)
+    reactor.run()
 
 # while True:
 
