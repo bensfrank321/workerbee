@@ -665,7 +665,6 @@ def checkBotIn():
 
     time.sleep(60)
 
-
 def requestJob():
     app_log.debug("Requesting new job")
     headers = {'X-Api-Key': api_key}
@@ -698,8 +697,6 @@ def requestJob():
         e = sys.exc_info()[0]
         app_log.debug('Exceptiong getting next job:  %s' % e)
 
-
-
 if octoprint_on():
     getOctoprintAPIVersion()
     printStatus = getPrintingStatus()
@@ -708,7 +705,6 @@ if octoprint_on():
     reportTorName()
     LoopingCall(checkBotIn).start(15,True)
     reactor.run()
-
 # while True:
 
 
