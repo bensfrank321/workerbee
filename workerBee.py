@@ -17,7 +17,7 @@ from twisted.internet import pollreactor
 
 pollreactor.install()
 from twisted.internet import reactor
-from twisted.internet.task import LoopingCall
+from twisted.internet import task
 import math
 import urllib
 from poster.encode import multipart_encode
@@ -29,7 +29,6 @@ import os.path
 import inspect, shutil
 import re
 from time import sleep
-import RPi.GPIO as GPIO
 import threading
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -107,70 +106,9 @@ blueLEDPin = 18
 readyButtonPin = 6
 cancelButtonPin = 5
 
-##Hardware Setup
-if hasFHBoard:
-    GPIO.setmode(GPIO.BCM)
-    ##Setup LEDs
-    GPIO.setup(redLEDPin, GPIO.OUT)
-    GPIO.output(redLEDPin, True)
-    GPIO.setup(blueLEDPin, GPIO.OUT)
-    GPIO.output(blueLEDPin, True)
-    sleep(1)
-    GPIO.output(redLEDPin, False)
-    GPIO.output(blueLEDPin, False)
-
-    ##Setup Buttons
-    GPIO.setup(cancelButtonPin, GPIO.IN)  # 1 by default, 0 when pressed
-    GPIO.setup(readyButtonPin, GPIO.IN)
-
-
-def turnOnRed():
-    if hasFHBoard:
-        GPIO.output(redLEDPin, True)
-
-
-def turnOffRed():
-    if hasFHBoard:
-        GPIO.output(redLEDPin, False)
-
-
-def turnOnBlue():
-    if hasFHBoard:
-        GPIO.output(blueLEDPin, True)
-
-
-def turnOffBlue():
-    if hasFHBoard:
-        GPIO.output(blueLEDPin, False)
-
-
-def buttonChecker():
-    if not GPIO.input(cancelButtonPin):
-        app_log.debug("Cancel button pressed")
-        cancelPrint()
-    if not GPIO.input(readyButtonPin):
-        app_log.debug("Ready button pressed")
-        readyButtonPressed()
-
-
-##File watching setup
-path_to_watch = "/dev/disk/by-label/"
-path_mount_base = "/tmp/fabhive"
-filename_to_look_for = "/config.ini"
-before = dict([(f, None) for f in os.listdir(path_to_watch)])
-
 ##Used for uploading files
 register_openers()
 
-if (hasLCD):
-    import Adafruit_CharLCD as LCD
-
-    # Initialize the LCD using the pins
-    lcd = LCD.Adafruit_CharLCDPlate()
-    lcd.set_color(1.0, 1.0, 0.0)
-    lcd.clear()
-    lcd.message('Starting...')
-    time.sleep(3.0)
 
 MINUTES = 60.0
 
@@ -205,37 +143,6 @@ def rebootscript():
     print "rebooting system"
     command = "/sbin/reboot"
     subprocess.call(command, shell=True)
-
-
-def checkConfigFile():
-    app_log.debug("Checking for new config file")
-    global before
-    after = dict([(f, None) for f in os.listdir(path_to_watch)])
-    added = [f for f in after if not f in before]
-    removed = [f for f in before if not f in after]
-    if added:
-        i = 0
-        for f in added:
-            app_log.debug("New Device Found: " + f)
-            if not (os.path.isdir(path_mount_base + str(i))):
-                os.mkdir(path_mount_base + str(i))
-            subprocess.check_call(["mount", path_to_watch + f, path_mount_base + str(i)])
-            if (os.path.isfile(path_mount_base + str(i) + filename_to_look_for)):
-                app_log.debug("Found new config file")
-                shutil.copyfile(path_mount_base + str(i) + filename_to_look_for,
-                                script_directory + filename_to_look_for);
-                rebootscript()
-            else:
-                app_log.debug("No config file on drive, unmounting")
-                subprocess.check_call(["umount", path_mount_base + str(i)])
-            i = i + 1
-    else:
-        app_log.debug("No new devices")
-
-    if removed:
-        app_log.debug("Removed: " + ' '.join(['%s' % f for f in removed]))
-    before = after
-
 
 def file_get_contents(filename):
     with open(filename) as f:
@@ -342,7 +249,7 @@ def getPrintingStatus():
     else:
         printingStatus['percentComplete'] = decodedData['progress']['completion']
         printingStatus['timeLeft'] = '0'
-        printingStatus['fileName'] = '0'
+        printingStatus['fileName'] = decodedData['job']['file']['name']
 
     r = requests.get('http://localhost:5000/api/printer', headers=headers)
     app_log.debug("shawn status: " + r.text)
@@ -421,9 +328,7 @@ def markJobTaken(jobID):
     try:
         headers = {'X-API-Key': api_key}
         r = requests.get(fabhive_url + 'jobs/' + str(jobID), headers=headers)
-        app_log.debug("here 1")
         app_log.debug(r.text)
-        app_log.debug("here 2")
     except:
         app_log.debug("Brrr...that didn't work")
         return False
@@ -433,17 +338,18 @@ def markJobTaken(jobID):
     if (decodedData['error'] == True or decodedData['status'] != 0):
         return False
     else:
-        app_log.debug("here 4")
         headers = {'X-API-Key': api_key}
         data = {'status': '1', 'bot_id': workerBeeId}
         try:
             r = requests.put(fabhive_url + 'jobs/' + str(jobID), data=data, headers=headers)
             decodedData = json.loads(r.text)
-            app_log.debug("here 5")
             if (decodedData['error'] == False):
                 app_log.debug("Mark Job Taken: " + r.text)
                 return True
         except:
+            app_log.debug("Failed here")
+            reactor.stop()
+            sys.exit()
             return False
 
 
@@ -663,7 +569,6 @@ def checkBotIn():
     if (status == "offline"):
         updateBeeStatus(message='Checking In')
 
-    time.sleep(60)
 
 def requestJob():
     app_log.debug("Requesting new job")
@@ -703,9 +608,10 @@ if octoprint_on():
     diskUsed = freeSpace()
     updateBeeStatus(statusCode=1, message='Starting Up', temp=printStatus['temperature'], diskSpace=diskUsed)
     reportTorName()
-    LoopingCall(checkBotIn).start(15,True)
-    reactor.run()
-# while True:
+
+checkinLoop=task.LoopingCall(checkBotIn)
+checkinLoop.start(5)
+reactor.run()
 
 
 # All previous code for reference
