@@ -14,8 +14,6 @@ import urllib
 import socket
 from twisted.internet.protocol import Protocol, ReconnectingClientFactory
 from twisted.internet import pollreactor
-
-pollreactor.install()
 from twisted.internet import reactor
 from twisted.internet import task
 import math
@@ -29,7 +27,7 @@ import os.path
 import inspect, shutil
 import re
 from time import sleep
-import threading
+# pollreactor.install()
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
@@ -202,12 +200,12 @@ def printerStatus():
         # Get status from OctoPrint
         headers = {'X-Api-Key': octoprint_api_key}
         r = requests.get('http://localhost:5000/' + 'api/job', headers=headers)
-        app_log.debug("job status: " + r.text)
+        # app_log.debug("job status: " + r.text)
 
         decodedData = json.loads(r.text)
-        if (decodedData['state'] == 'Offline'):
+        if ('Offline' in decodedData['state']):
             updateBeeStatus(3, 'Printer is offline for octoprint')
-            return 'offline'
+            return 'Printer Offline'
         if (decodedData['state'] == 'Operational' and bot_stats['status'] == 0):
             isPrinting = False
             return 'idle'
@@ -221,6 +219,8 @@ def printerStatus():
             return 'printing'
         if (decodedData['state'] == 'Closed' or bot_stats['status'] != 0):
             return 'offline'
+
+        app_log.debug("job status: " + r.text)
         return 'other'
 
     except:
@@ -252,7 +252,7 @@ def getPrintingStatus():
         printingStatus['fileName'] = decodedData['job']['file']['name']
 
     r = requests.get('http://localhost:5000/api/printer', headers=headers)
-    app_log.debug("shawn status: " + r.text)
+    # app_log.debug("shawn status: " + r.text)
     try:
         decodedData = json.loads(r.text)
         printingStatus['temperature'] = decodedData['temperature']['tool0']['actual']
@@ -356,8 +356,8 @@ def markJobTaken(jobID):
 def markJobCompleted(jobID):
     app_log.debug("Marki Job Complete function for job id: " + str(jobID))
     if (jobID > 0):
-        headers = {'Authorization': api_key}
-        data = {'status': '2', 'bot': workerBeeId}
+        headers = {'X-Api-Key': api_key}
+        data = {'status': '2', 'bot_id': workerBeeId}
         try:
             file = open('webcam.jpg', 'wb')
             file.write(urllib.urlopen("http://127.0.0.1:8080/?action=snapshot").read())
@@ -386,7 +386,7 @@ def markJobCompleted(jobID):
             else:
                 app_log.debug("Putting Job Complete w/out image: " + str(jobID))
                 r = requests.put(fabhive_url + 'jobs/' + str(jobID), data=data, headers=headers)
-            decodedData = json.loads(r.text)
+                decodedData = json.loads(r.text)
             if (decodedData['error'] == False):
                 app_log.debug("Mark Job Completed: " + r.text)
                 return True
@@ -544,7 +544,8 @@ def checkBotIn():
         updateBeeStatus(statusCode=99, message='Printing Complete: ' + printStatus['fileName'] + '<BR/>Percent Complete: ' + str(
             math.ceil(printStatus['percentComplete'])), temp=printStatus['temperature'], diskSpace=diskUsed)
         if (currentJobId > 0):
-            if (printingStatus['percentComplete'] == 100):
+            app_log.debug("Time to mark the job as completed.")
+            if (math.ceil(printStatus['percentComplete']) == 100):
                 while True:
                     app_log.debug("Marking job complete")
                     result = markJobCompleted(currentJobId)
@@ -569,8 +570,12 @@ def checkBotIn():
     if (status == "offline"):
         updateBeeStatus(message='Checking In')
 
+    if (status == 'Printer Offline'):
+        updateBeeStatus(3, 'Printer is offline for octoprint')
+
 
 def requestJob():
+    global currentJobId
     app_log.debug("Requesting new job")
     headers = {'X-Api-Key': api_key}
     try:
