@@ -2,3 +2,10 @@ KatanaConfig.py
 KatanaConfig.pyc
 config.yaml
 .idea/
+.DS_Store
+config.ini
+logFile.log
+logFile.log.1
+logFile.log.2
+webcam-flipped.jpg
+webcam.jpg
