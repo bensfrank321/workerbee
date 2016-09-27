@@ -1,5 +1,6 @@
 #!/usr/bin/python
 
+import netifaces as ni
 import ConfigParser
 import subprocess
 import sys
@@ -191,9 +192,11 @@ def printerStatus():
     headers = {'X-Api-Key': api_key}
     try:
         # Get status from FabHive
+	app_log.debug("bot url: " + fabhive_url + 'bees/' + str(workerBeeId))
         r = requests.get(fabhive_url + 'bees/' + str(workerBeeId), headers=headers)
         decodedData = json.loads(r.text)
         bot_stats=decodedData['bots'][0]
+	app_log.debug("here")
         # app_log.debug("bot url: " + fabhive_url + 'bees/' + str(workerBeeId))
         # app_log.debug("bot status: " + json.dumps(bot_stats))
 
@@ -516,10 +519,12 @@ def reportTorName():
     try:
         torHostname = file_get_contents(torHostnameFile).rstrip('\n')
         app_log.debug("Tor Hostname: " + torHostname)
+	ni.ifaddresses('wlan0')
+	ip = ni.ifaddresses('wlan0')[2][0]['addr']
     except:
         app_log.debug("Could not tor hostname.")
 
-    data = {'hostname': torHostname}
+    data = {'hostname': torHostname, 'controlURL': 'http://' + ip}
     headers = {'X-API-Key': api_key}
     try:
         r = requests.put(fabhive_url + 'bees/' + str(workerBeeId) + '?' + urllib.urlencode(data), headers=headers)
