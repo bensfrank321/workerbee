@@ -519,8 +519,12 @@ def reportTorName():
     try:
         torHostname = file_get_contents(torHostnameFile).rstrip('\n')
         app_log.debug("Tor Hostname: " + torHostname)
-	ni.ifaddresses('wlan0')
-	ip = ni.ifaddresses('wlan0')[2][0]['addr']
+        gws=ni.gateways()
+        print(gws)
+        iface=gws['default'][ni.AF_INET][1]
+        ni.ifaddresses(iface)
+        ip = ni.ifaddresses(iface)[2][0]['addr']
+        print (ip)
     except:
         app_log.debug("Could not tor hostname.")
 
