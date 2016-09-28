@@ -1,8 +1,5 @@
-RPi.GPIO
-requests
-boto
-logging
-twisted
-pillow
-Image
-ConfigParser
+netifaces==0.10.5
+poster==0.8.1
+requests==2.4.3
+Twisted==16.4.1
+Pillow==3.3.1
