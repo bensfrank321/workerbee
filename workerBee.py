@@ -520,11 +520,11 @@ def reportTorName():
         torHostname = file_get_contents(torHostnameFile).rstrip('\n')
         app_log.debug("Tor Hostname: " + torHostname)
         gws=ni.gateways()
-        print(gws)
+        # print(gws)
         iface=gws['default'][ni.AF_INET][1]
         ni.ifaddresses(iface)
         ip = ni.ifaddresses(iface)[2][0]['addr']
-        print (ip)
+        # print (ip)
     except:
         app_log.debug("Could not tor hostname.")
 
@@ -541,6 +541,7 @@ def checkBotIn():
     global isPrinting
     global currentJobId
     app_log.debug("Checking Bot In")
+    reportTorName()
 
     status = printerStatus()
 
