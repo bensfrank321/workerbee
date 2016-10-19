@@ -242,20 +242,23 @@ def getPrintingStatus():
     global isPrinting
     headers = {'X-Api-Key': octoprint_api_key}
     r = requests.get('http://localhost:5000/' + 'api/job', headers=headers)
-    decodedData = json.loads(r.text)
-    global printingStatus
-    if (decodedData['state'] == 'Printing'):
-        printingStatus['percentComplete'] = decodedData['progress']['completion']
-        printingStatus['timeLeft'] = decodedData['progress']['printTimeLeft']
-        printingStatus['fileName'] = decodedData['job']['file']['name']
-        isPrinting = True
-    else:
-        printingStatus['percentComplete'] = decodedData['progress']['completion']
-        printingStatus['timeLeft'] = '0'
-        printingStatus['fileName'] = decodedData['job']['file']['name']
+    try: 
+        decodedData = json.loads(r.text)
+        global printingStatus
+        if (decodedData['state'] == 'Printing'):
+           printingStatus['percentComplete'] = decodedData['progress']['completion']
+           printingStatus['timeLeft'] = decodedData['progress']['printTimeLeft']
+           printingStatus['fileName'] = decodedData['job']['file']['name']
+           isPrinting = True
+        else:
+           printingStatus['percentComplete'] = decodedData['progress']['completion']
+           printingStatus['timeLeft'] = '0'
+           printingStatus['fileName'] = decodedData['job']['file']['name']
+    except:
+        e = sys.exc_info()[0]
+        app_log.debug('Exception getting print status:  %s' % e)
 
     r = requests.get('http://localhost:5000/api/printer', headers=headers)
-    # app_log.debug("shawn status: " + r.text)
     try:
         decodedData = json.loads(r.text)
         printingStatus['temperature'] = decodedData['temperature']['tool0']['actual']
