@@ -267,7 +267,7 @@ def getPrintingStatus():
         e = sys.exc_info()[0]
         app_log.debug('Exception determining temp:  %s' % e)
         app_log.debug("getPrintingStatus: Error getting temperature: ")
-        printingStatus['temperature'] = 0
+        printingStatus['temperature'] = 0.0
     return printingStatus
 
 
@@ -555,7 +555,7 @@ def checkBotIn():
         diskUsed = freeSpace()
         # updateBeeStatus(statusCode=99, message='Checked In', temp=printStatus['temperature'], diskSpace=diskUsed)
         updateBeeStatus(statusCode=99, message='Printing Complete: ' + printStatus['fileName'] + '<BR/>Percent Complete: ' + str(
-            math.ceil(printStatus['percentComplete'])), temp=printStatus['temperature'], diskSpace=diskUsed)
+            math.ceil(float(printStatus['percentComplete']))), temp=printStatus['temperature'], diskSpace=diskUsed)
         if (currentJobId > 0):
             app_log.debug("Time to mark the job as completed.")
             if (math.ceil(printStatus['percentComplete']) == 100):
