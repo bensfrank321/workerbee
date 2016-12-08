@@ -17,7 +17,7 @@ PATH=/home/pi/workerbee:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:
 case "$1" in
   start)
     log_begin_msg "Starting my super cool service"
-    screen -dR workerbee /bin/bash /home/pi/workerbee/workerbee-start.sh
+    screen -dmS workerbee /bin/bash /home/pi/workerbee/workerbee-start.sh
     log_end_msg $?
     exit 0
     ;;
