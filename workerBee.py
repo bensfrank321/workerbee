@@ -574,7 +574,7 @@ def checkBotIn():
         printStatus = getPrintingStatus()
         diskUsed = freeSpace()
         updateBeeStatus(statusCode=1, message='Printing: ' + printStatus['fileName'] + '<BR/>Percent Complete: ' + str(
-            math.ceil(printStatus['percentComplete'])), temp=printStatus['temperature'], diskSpace=diskUsed)
+            math.ceil(float(printStatus['percentComplete']))), temp=printStatus['temperature'], diskSpace=diskUsed)
 
     if (status == "idle" and isPrinting == False):
         app_log.debug("Requesting job")
