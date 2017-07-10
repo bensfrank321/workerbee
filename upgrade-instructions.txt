@@ -1,0 +1,78 @@
+Upgrade Directions:
+Use at your own risk...
+
+using "/etc/sysctl.conf", by adding the line "net.ipv6.conf.all.disable_ipv6 = 1"
+
+/home/pi/OctoPrint/venv/bin/octoprint
+
+cat /etc/os-release
+
+#update PI
+sudo apt-get install libffi-dev libssl-dev python-service-identity
+sudo pip install pyopenssl ndg-httpsclient pyasn1
+
+sudo apt-get -qq update && sudo apt-get -y upgrade
+sudo apt-get dist-upgrade
+
+#Update OctoPrint
+sudo chown -R pi ~/OctoPrint
+sudo rm -rf ~/OctoPrint/venv
+cd ~/OctoPrint
+git pull
+virtualenv venv
+./venv/bin/pip install pip --upgrade
+./venv/bin/python setup.py install
+
+#Update Workerbee
+cd ~/workerbee
+git remote set-url origin https://github.com/shawngrimes/workerbee.git
+git pull
+sudo pip install --upgrade --user setuptools pip
+sudo easy_install --upgrade pip
+sudo pip install requests==2.6.0
+sudo pip install --upgrade -r requirements.txt
+sudo cp /home/pi/workerbee/fabHive /etc/init.d/
+sudo chmod a+x /etc/init.d/fabHive
+sudo update-rc.d fabHive defaults
+
+
+
+
+sudo apt-get -y install tor python-pip python-dev python-setuptools python-virtualenv git libyaml-dev build-essential libssl-dev libffi-dev python-pkg-resources
+sudo pip install poster
+
+echo 'HiddenServiceDir /var/lib/tor/ssh_hidden_service/' | sudo tee --append /etc/tor/torrc
+echo 'HiddenServicePort 22 127.0.0.1:22' | sudo tee --append /etc/tor/torrc
+
+sudo -s
+cd /var/lib/tor/ssh_hidden_service/
+rm ./*
+sudo service tor restart
+exit
+
+
+
+cd /home/pi/OctoPrint
+sudo chown -R pi.pi /home/pi/OctoPrint
+git fetch
+git pull
+virtualenv --system-site-packages venv
+./venv/bin/pip install -r ./requirements.txt
+./venv/bin/python setup.py install
+sudo cp scripts/octoprint.init /etc/init.d/octoprint
+sudo chmod +x /etc/init.d/octoprint
+sudo cp scripts/octoprint.default /etc/default/octoprint
+echo 'DAEMON=/home/pi/OctoPrint/venv/bin/octoprint' | sudo tee --append /etc/default/octoprint
+sudo update-rc.d octoprint defaults
+
+
+cd ~/workerbee
+git remote set-url origin git@github.com:shawngrimes/workerbee.git
+git stash
+git fetch
+git pull
+
+sudo raspi-config
+passwd: WEG9wf4
+
+scp -r pi@octopi-1.dhftc.org:/home/pi/.octoprint/* ./

@@ -1,0 +1,5 @@
+gparted to reduce partition size
+sudo umount /dev/disk2s1
+sudo dd bs=1m if=/dev/disk2s1 of=boot.img
+sudo dd bs=1m if=/dev/disk2s2 of=root.img
+sudo ./genimage.sh
