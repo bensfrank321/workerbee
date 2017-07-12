@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-#BENS AWESOME CHANGE
+#comments that have a "?" at the end were added by Ben Frank
 
 import netifaces as ni
 import ConfigParser
@@ -45,11 +45,12 @@ else:
 # Function used to compare version numbers
 def vercmp(version1, version2):
     def normalize(v):
+        #This function goes through a list and turns the data into integers?
         return [int(x) for x in re.sub(r'(\.0+)*$', '', v).split(".")]
 
     return cmp(normalize(version1), normalize(version2))
 
-
+#Function is used with octoprint_api_key  which is used in more functions?
 def ConfigSectionMap(section):
     dict1 = {}
     options = Config.options(section)
@@ -108,9 +109,11 @@ readyButtonPin = 6
 cancelButtonPin = 5
 
 ##Used for uploading files
+#Registers streaming http handlers with urllib2?
 register_openers()
 
 
+#Not currently being used in this script?
 MINUTES = 60.0
 
 # script filename (usually with path)
@@ -121,7 +124,7 @@ script_directory = os.path.dirname(os.path.abspath(inspect.getfile(inspect.curre
 # print script_directory
 print "WorkerBee started."
 
-
+#This function is used in GetOctoprintAPIVersion(), printerTemps(), and RequestJob()?S
 def octoprint_on():
     try:
         response = urllib2.urlopen('http://localhost:5000', timeout=10)
@@ -272,7 +275,7 @@ def getPrintingStatus():
         printingStatus['temperature'] = 0.0
     return printingStatus
 
-
+#Checks printer temperatures
 def printerTemps():
     temps = {}
     temps['bed'] = 0
@@ -362,7 +365,7 @@ def markJobTaken(jobID):
 
 
 def markJobCompleted(jobID):
-    app_log.debug("Marki Job Complete function for job id: " + str(jobID))
+    app_log.debug("Mark Job Complete function for job id: " + str(jobID))
     if (jobID > 0):
         headers = {'X-Api-Key': api_key}
         data = {'status': '2', 'bot_id': workerBeeId}
@@ -578,14 +581,15 @@ def checkBotIn():
         updateBeeStatus(statusCode=1, message='Printing: ' + printStatus['fileName'] + '<BR/>Percent Complete: ' + str(
             math.ceil(float(printStatus['percentComplete']))), temp=printStatus['temperature'], diskSpace=diskUsed)
 
-    if (status == "idle" and isPrinting == False):
+
+   if (status == "idle" and isPrinting == False):#If a printer is idle and isn't printing, the request a job?
         app_log.debug("Requesting job")
-        requestJob()
+        requestJob()#activate function called requestJob()?
 
     if (status == "offline"):
         updateBeeStatus(message='Checking In')
 
-    if (status == 'Printer Offline'):
+    if (status == 'Printer Offline'):#If printer is offline, change status to offline?
         updateBeeStatus(3, 'Printer is offline for octoprint')
 
 
@@ -597,11 +601,11 @@ def requestJob():
         # Get status from FabHive
         r = requests.get(fabhive_url + 'hives/' + str(queue_id) + '/next', headers=headers)
         app_log.debug('here: ' + fabhive_url + 'hives/' + str(queue_id) + '/next')
-        app_log.debug(r.text)
-        decodedData = json.loads(r.text)
+        app_log.debug(r.text)#r.text turns html codes into readable text then prints text with app_log.debug?
+        decodedData = json.loads(r.text)#deserializes r.text and turns it into a python object?
         app_log.debug('here')
         # app_log.debug("bot url: " + fabhive_url + 'bees/' + str(workerBeeId))
-        app_log.debug("next Job: " + json.dumps(decodedData))
+        app_log.debug("next Job: " + json.dumps(decodedData))#json.dumps(decodedData)--Serializes obj to a JSON formatted str?
         job=decodedData['jobs'][0]
         updateBeeStatus(statusCode=1, message='Received job: ' + job['filename'])
         if (addJobToOctoprint(job) == True):
@@ -620,7 +624,7 @@ def requestJob():
 
     except:
         e = sys.exc_info()[0]
-        app_log.debug('Exceptiong getting next job:  %s' % e)
+        app_log.debug('Exception getting next job:  %s' % e)
 
 if octoprint_on():
     getOctoprintAPIVersion()
