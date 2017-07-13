@@ -93,7 +93,7 @@ workerBeeId = ConfigSectionMap("FabHive")['workerbee']
 shouldFlipCamera = Config.getboolean('Hardware', 'flipcamera')
 fabhive_url = ConfigSectionMap("FabHive")['fabhiveurl']
 api_key = ConfigSectionMap("FabHive")['apikey']
-octoprint_api_key = ConfigSectionMap("OctoPrint")['apikey']
+octoprint_api_key = ConfigSectionMap("OctoPrint")['apikey']#gets API key?
 
 ##Other startup settings
 currentJobId = 0
@@ -142,12 +142,13 @@ def freeSpace():
     percent = "." + percent
     return percent
 
-
+#Reboots script?
 def rebootscript():
     print "rebooting system"
     command = "/sbin/reboot"
-    subprocess.call(command, shell=True)
+    subprocess.call(command, shell=True)#calls/executes command using class subprocess?
 
+#Reads file which is a variable with a name called filename?
 def file_get_contents(filename):
     with open(filename) as f:
         return f.read()
