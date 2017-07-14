@@ -182,7 +182,7 @@ def getOctoprintAPIVersion():
 def isPrinterOnline():
     headers = {'Authorization': api_key}
     try:
-        r = requests.get('http://localhost:5000/' + 'api/job', headers=headers)
+        r = requests.get('http://localhost:5000/' + 'api/job', headers=headers)#Creates URL for specific printer and stores in variable "r"?
         if (decodedData['state'] == 'Offline'):
             updateBeeStatus(3, 'Printer is offline for octoprint')
             return False
