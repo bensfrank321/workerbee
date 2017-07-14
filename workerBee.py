@@ -145,7 +145,7 @@ def freeSpace():
 #Reboots script?
 def rebootscript():
     print "rebooting system"
-    command = "/sbin/reboot"
+    command = "/sbin/reboot"#Linux terminal command is executed and reboots script?
     subprocess.call(command, shell=True)#calls/executes command using class subprocess?
 
 #Reads file which is a variable with a name called filename?
